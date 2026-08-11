@@ -43,12 +43,41 @@
 
   header { display: flex; flex-wrap: wrap; gap: .8rem 1.4rem; align-items: center; margin-bottom: 1.4rem; }
 
-  h1 {
-    font: 800 1.5rem/1 ui-sans-serif, system-ui, sans-serif;
-    letter-spacing: .16em; text-transform: uppercase; margin: 0;
-    text-shadow: 0 2px 0 rgba(0,0,0,.5);
+  /* Hull lettering: stencilled, painted on steel. The bridges across the
+     letterforms are a mask, so the page shows through them the way a real
+     stencil leaves gaps. */
+  .wordmark { margin: 0; display: flex; align-items: center; gap: .55rem; }
+
+  .stencil {
+    font: 400 1.95rem/1 Impact, Haettenschweiler, "Arial Narrow Bold", "Arial Narrow", sans-serif;
+    text-transform: uppercase;
+    letter-spacing: .15em;
+    color: transparent;
+    background: linear-gradient(180deg, #ffffff 0%, #d9e6f0 26%, #aabecd 54%, #7d93a6 82%, #9db1c2 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+    /* Two bridges, placed by percentage so they land inside the cap height
+       rather than clipping the baseline. */
+    -webkit-mask-image: linear-gradient(180deg,
+      #000 0 33%, transparent 33% 38%, #000 38% 63%, transparent 63% 68%, #000 68% 100%);
+    mask-image: linear-gradient(180deg,
+      #000 0 33%, transparent 33% 38%, #000 38% 63%, transparent 63% 68%, #000 68% 100%);
+    filter: drop-shadow(0 1px 0 rgba(0,0,0,.95)) drop-shadow(0 4px 9px rgba(0,0,0,.6));
   }
-  h1 span { color: var(--teal); }
+  .stencil i {
+    font-style: normal;
+    color: transparent;
+    background: linear-gradient(180deg, #b6fdf5 0%, #4fdcce 42%, #16a99d 82%, #3fc9bd 100%);
+    -webkit-background-clip: text;
+    background-clip: text;
+  }
+
+  /* Without clip-to-text the letters would be transparent, i.e. invisible.
+     Fall back to flat colour rather than no title at all. */
+  @supports not ((-webkit-background-clip: text) or (background-clip: text)) {
+    .stencil { background: none; color: var(--ink); -webkit-mask-image: none; mask-image: none; }
+    .stencil i { background: none; color: var(--teal); }
+  }
 
   .code-plate {
     display: flex; align-items: center; gap: .5rem;
@@ -392,7 +421,7 @@
 <body>
 <div class="wrap">
   <header>
-    <h1>Battle<span>ship</span></h1>
+    <h1 class="wordmark"><span class="stencil">Battle<i>ship</i></span></h1>
     <span id="codeBadge" class="code-plate hidden"></span>
     <span class="conn"><span id="dot" class="dot"></span><span id="connText">offline</span></span>
   </header>

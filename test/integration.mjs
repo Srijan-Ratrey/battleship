@@ -14,7 +14,11 @@ import assert from 'node:assert/strict';
 import { SIZE, TOTAL_SHIP_CELLS } from '../src/game.js';
 
 const BASE = process.env.BATTLESHIP_URL ?? 'ws://localhost:8787';
-const ROOM = `E2E${Math.floor(Math.random() * 900 + 100)}`;
+
+// Rooms are Durable Objects and persist, so a short code eventually collides
+// with a finished room from an earlier run and the server — correctly — answers
+// `full`. Nine random characters keeps every run in a room of its own.
+const ROOM = `E2E${Array.from({ length: 9 }, () => Math.floor(Math.random() * 36).toString(36).toUpperCase()).join('')}`;
 
 class Client {
   constructor(label) {
