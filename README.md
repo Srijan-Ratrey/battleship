@@ -1,5 +1,7 @@
 # Battleship over WebSocket
 
+### ▶ [Play it live](https://battleship.sr5.workers.dev)
+
 Two-player Battleship on Cloudflare Workers + Durable Objects. One room = one
 Durable Object that holds both fleets, runs every rule, and persists state — so
 a dropped connection resumes exactly where it paused.
@@ -7,6 +9,11 @@ a dropped connection resumes exactly where it paused.
 The server is authoritative. A shot returns hit / miss / sunk for **that one
 cell** and nothing else; neither player ever receives the other's layout until
 the game is over.
+
+![A game in progress: your fleet on the left with damage, enemy waters on the right showing hits, misses and a sunk Destroyer](docs/gameplay.png)
+
+Create a room, send the invite link to a friend, and play. No sign-up, no
+install.
 
 ## Run it
 
@@ -40,6 +47,7 @@ public/index.html    single-file frontend (no framework, no build step)
 test/game.test.mjs   rules tests, plain Node
 test/integration.mjs end-to-end test over real WebSockets (needs `npm run dev`)
 wrangler.jsonc       Worker name, ROOM binding, SQLite DO, assets
+docs/                README screenshots
 ```
 
 `src/game.js` imports nothing from Cloudflare, which is what lets `npm test` run
@@ -116,6 +124,8 @@ leak the ship's size.
   side alone cannot wipe a finished board out from under the other. The rematch
   keeps the same room, slots and identities, and deals fresh fleets.
 - Hits explode, misses splash, and taking a hit shakes your board.
+
+![The end-of-game modal reading VICTORY over a blurred board, with shots, hits and accuracy, and buttons to play again or view the boards](docs/victory.png)
 - Rejoin: your `playerId` lives in `sessionStorage`, so a reload or a dropped
   socket puts you back in your slot with your board, your tracking grid, and the
   correct turn. It is **per tab** on purpose — `localStorage` is shared across
