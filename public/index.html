@@ -1,0 +1,535 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Battleship</title>
+<style>
+  :root {
+    --bg: #0b1622;
+    --panel: #13212f;
+    --panel-2: #1b2d3f;
+    --line: #26405a;
+    --ink: #e8f1f8;
+    --dim: #8aa4bd;
+    --teal: #35c9c0;
+    --amber: #f0b429;
+    --red: #ef5b5b;
+    --water: #16293b;
+  }
+
+  * { box-sizing: border-box; }
+
+  body {
+    margin: 0;
+    padding: 1.5rem 1rem 3rem;
+    background: var(--bg);
+    color: var(--ink);
+    font: 16px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+
+  .wrap { max-width: 940px; margin: 0 auto; }
+
+  header {
+    display: flex; flex-wrap: wrap; gap: .75rem 1.25rem;
+    align-items: baseline; margin-bottom: 1.25rem;
+  }
+  h1 { font-size: 1.4rem; margin: 0; letter-spacing: .02em; }
+  h1 span { color: var(--teal); }
+
+  .room-code {
+    font: 600 1.05rem/1 ui-monospace, SFMono-Regular, Menlo, monospace;
+    letter-spacing: .18em;
+    background: var(--panel-2); border: 1px solid var(--line);
+    padding: .4rem .7rem; border-radius: .4rem;
+  }
+  .conn { margin-left: auto; font-size: .85rem; color: var(--dim); display: flex; align-items: center; gap: .45rem; }
+  .dot { width: .55rem; height: .55rem; border-radius: 50%; background: var(--red); }
+  .dot.on { background: var(--teal); }
+
+  .status {
+    background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--teal);
+    padding: .8rem 1rem; border-radius: .4rem; margin-bottom: 1rem; min-height: 3.1rem;
+  }
+  .status.alert { border-left-color: var(--amber); }
+  .status.bad { border-left-color: var(--red); }
+  .status b { color: var(--teal); }
+  .status .sub { display: block; color: var(--dim); font-size: .85rem; margin-top: .15rem; }
+
+  .controls { display: flex; flex-wrap: wrap; gap: .6rem; margin-bottom: 1.25rem; }
+  button {
+    font: 600 .92rem/1 inherit; color: var(--ink);
+    background: var(--panel-2); border: 1px solid var(--line);
+    padding: .65rem 1.1rem; border-radius: .4rem; cursor: pointer;
+  }
+  button:hover:not(:disabled) { border-color: var(--teal); }
+  button.primary { background: var(--teal); color: #06232a; border-color: var(--teal); }
+  button:disabled { opacity: .4; cursor: not-allowed; }
+  input {
+    font: 600 .95rem/1 ui-monospace, Menlo, monospace; letter-spacing: .16em; text-transform: uppercase;
+    color: var(--ink); background: var(--panel-2); border: 1px solid var(--line);
+    padding: .6rem .7rem; border-radius: .4rem; width: 7.5rem;
+  }
+
+  .boards { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem; }
+  .board h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .12em; color: var(--dim); margin: 0 0 .6rem; }
+
+  .grid { display: grid; grid-template-columns: 1.3rem repeat(10, 1fr); gap: 2px; }
+  .lab { font-size: .65rem; color: var(--dim); display: flex; align-items: center; justify-content: center; }
+  .cell {
+    aspect-ratio: 1; background: var(--water); border: 1px solid #1e364c; border-radius: 2px;
+    display: flex; align-items: center; justify-content: center; font-size: .8rem;
+  }
+  .cell.ship { background: #3c556e; border-color: #4e6c8a; }
+  .cell.sunkship { background: #5a3040; border-color: #7d4358; }
+  .cell.hit  { background: var(--red); border-color: #ff8080; color: #2a0000; }
+  .cell.miss { background: #1d3245; color: var(--dim); }
+  .cell.aim { cursor: crosshair; }
+  .cell.aim:hover { background: #23485f; border-color: var(--teal); }
+  .cell.last { outline: 2px solid var(--amber); outline-offset: -2px; }
+
+  .fleet { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .6rem; }
+  .chip { font-size: .7rem; color: var(--dim); border: 1px solid var(--line); border-radius: 1rem; padding: .12rem .55rem; }
+  .chip.sunk { color: var(--red); border-color: var(--red); text-decoration: line-through; }
+
+  .hidden { display: none !important; }
+  .lobby { background: var(--panel); border: 1px solid var(--line); border-radius: .5rem; padding: 1.5rem; }
+  .lobby p { color: var(--dim); margin: 0 0 1rem; }
+  .row { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; }
+  .or { color: var(--dim); font-size: .85rem; margin: 0 .3rem; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Battle<span>ship</span></h1>
+    <span id="codeBadge" class="room-code hidden"></span>
+    <span class="conn"><span id="dot" class="dot"></span><span id="connText">offline</span></span>
+  </header>
+
+  <!-- Lobby -->
+  <section id="lobby" class="lobby">
+    <p>Create a room and share the code, or join one you were given.</p>
+    <div class="row">
+      <button id="createBtn" class="primary">Create a room</button>
+      <span class="or">or</span>
+      <input id="codeInput" maxlength="4" placeholder="CODE" autocomplete="off" spellcheck="false">
+      <button id="joinBtn">Join</button>
+    </div>
+  </section>
+
+  <!-- Game -->
+  <section id="game" class="hidden">
+    <div id="status" class="status"></div>
+
+    <div class="controls">
+      <button id="randomBtn">Randomize fleet</button>
+      <button id="readyBtn" class="primary">Ready</button>
+      <button id="shareBtn">Copy invite link</button>
+      <button id="leaveBtn">Leave</button>
+    </div>
+
+    <div class="boards">
+      <div class="board">
+        <h2>Your fleet</h2>
+        <div id="ownGrid" class="grid"></div>
+        <div id="ownFleet" class="fleet"></div>
+      </div>
+      <div class="board">
+        <h2 id="enemyTitle">Enemy waters</h2>
+        <div id="enemyGrid" class="grid"></div>
+        <div id="enemyFleet" class="fleet"></div>
+      </div>
+    </div>
+  </section>
+</div>
+
+<script>
+const SIZE = 10;
+const COLS = Array.from({ length: SIZE }, (_, i) => String(i + 1));
+const ROWS = 'ABCDEFGHIJ'.split('');
+// Mirrors CODE_ALPHABET in src/game.js — no I/O/0/1, because codes get read aloud.
+const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+
+const $ = (id) => document.getElementById(id);
+const blank = (v) => Array.from({ length: SIZE }, () => Array.from({ length: SIZE }, () => v));
+
+// --- client state ----------------------------------------------------------
+// Mirrors only what this player has legitimately been told. `tracking` is built
+// purely from our own fireResult messages — the enemy layout is never here
+// until gameOver fills in `reveal`.
+let S = {};
+
+function resetState(code) {
+  S = {
+    code,
+    slot: null,
+    playerId: null,
+    phase: 'lobby',
+    yourTurn: false,
+    ready: false,
+    grid: null,          // our own fleet
+    ships: [],
+    shot: blank(false),  // where the enemy has fired on us
+    tracking: blank(null),
+    enemySunk: [],
+    opponent: { joined: false, present: false, ready: false },
+    over: false,
+    winner: null,
+    reveal: null,        // enemy fleet, only after gameOver
+    lastOwn: null,
+    lastEnemy: null,
+    error: null,
+  };
+}
+
+// --- connection ------------------------------------------------------------
+
+let ws = null;
+let retry = 0;
+let keepalive = null;
+let leaving = false;
+
+// Per-TAB, not per-browser. localStorage is shared across tabs on one origin,
+// so a second tab would read the first player's token, and the server would
+// (correctly) treat it as a rejoin and hand it the same slot. sessionStorage
+// keeps two tabs on one machine as two distinct players, and still survives the
+// reloads and dropped sockets that rejoin exists for.
+function idKey(code) { return `battleship:${code}`; }
+const identity = {
+  get: (code) => sessionStorage.getItem(idKey(code)),
+  set: (code, id) => sessionStorage.setItem(idKey(code), id),
+  clear: (code) => sessionStorage.removeItem(idKey(code)),
+};
+
+function connect() {
+  const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
+  ws = new WebSocket(`${scheme}://${location.host}/api/room/${S.code}`);
+
+  ws.addEventListener('open', () => {
+    retry = 0;
+    setConn(true);
+    const saved = identity.get(S.code);
+    ws.send(JSON.stringify(saved ? { type: 'hello', playerId: saved } : { type: 'hello' }));
+    // The room auto-responds to this without waking, so an idle game keeps its
+    // sockets alive through proxies for free.
+    keepalive = setInterval(() => ws.readyState === 1 && ws.send('ping'), 30000);
+  });
+
+  ws.addEventListener('message', (event) => {
+    if (event.data === 'pong') return;
+    handle(JSON.parse(event.data));
+    render();
+  });
+
+  ws.addEventListener('close', () => {
+    setConn(false);
+    clearInterval(keepalive);
+    if (leaving) return;
+    // Backoff, then come back with our playerId and resync.
+    retry = Math.min(retry + 1, 5);
+    setTimeout(connect, [400, 800, 1600, 3200, 6000][retry - 1]);
+    render();
+  });
+}
+
+function setConn(on) {
+  $('dot').classList.toggle('on', on);
+  $('connText').textContent = on ? 'connected' : 'reconnecting…';
+}
+
+function send(message) {
+  if (ws && ws.readyState === 1) ws.send(JSON.stringify(message));
+}
+
+// --- server messages -------------------------------------------------------
+
+function handle(m) {
+  S.error = null;
+
+  switch (m.type) {
+    case 'welcome':
+      S.slot = m.slot;
+      S.playerId = m.playerId;
+      S.phase = m.phase;
+      identity.set(S.code, m.playerId);
+      break;
+
+    case 'full':
+      S.error = 'That room already has two players.';
+      leaving = true;
+      break;
+
+    case 'board':
+      S.grid = m.grid;
+      S.ships = m.ships;
+      break;
+
+    case 'opponent':
+      S.opponent = { joined: m.joined, present: m.present, ready: m.ready };
+      S.phase = m.phase;
+      break;
+
+    case 'youReady':
+      S.ready = m.ready;
+      break;
+
+    case 'start':
+      S.phase = 'playing';
+      S.yourTurn = m.yourTurn;
+      break;
+
+    case 'fireResult':
+      S.tracking[m.r][m.c] = m.hit ? 'hit' : 'miss';
+      S.lastEnemy = [m.r, m.c];
+      S.yourTurn = m.yourTurn;
+      if (m.sunk) S.enemySunk.push(m.shipName);
+      break;
+
+    case 'incoming':
+      S.shot[m.r][m.c] = true;
+      S.lastOwn = [m.r, m.c];
+      S.yourTurn = m.yourTurn;
+      if (m.sunk) markOwnSunk(m.shipName);
+      break;
+
+    case 'resync':
+      S.phase = m.phase;
+      S.slot = m.slot;
+      S.ready = m.ready;
+      S.yourTurn = m.yourTurn;
+      S.grid = m.board.grid;
+      S.ships = m.board.ships;
+      S.shot = m.board.shot;
+      S.tracking = m.tracking;
+      S.opponent = m.opponent;
+      S.over = m.over;
+      S.winner = m.winner;
+      if (m.boards) S.reveal = m.boards[S.slot === 'A' ? 'B' : 'A'];
+      S.enemySunk = S.reveal ? S.reveal.ships.filter((s) => s.sunk).map((s) => s.name) : S.enemySunk;
+      break;
+
+    case 'gameOver':
+      S.over = true;
+      S.phase = 'over';
+      S.winner = m.winner;
+      S.reveal = m.boards[S.slot === 'A' ? 'B' : 'A'];
+      break;
+
+    case 'error':
+      S.error = m.msg;
+      break;
+  }
+}
+
+function markOwnSunk(name) {
+  const ship = S.ships.find((s) => s.name === name);
+  if (ship) ship.sunk = true;
+}
+
+// --- rendering -------------------------------------------------------------
+
+function buildGrid(host, onClick) {
+  host.replaceChildren();
+  host.append(label(''));
+  for (const c of COLS) host.append(label(c));
+
+  for (let r = 0; r < SIZE; r++) {
+    host.append(label(ROWS[r]));
+    for (let c = 0; c < SIZE; c++) {
+      const cell = document.createElement('div');
+      cell.className = 'cell';
+      cell.dataset.r = r;
+      cell.dataset.c = c;
+      if (onClick) cell.addEventListener('click', () => onClick(r, c));
+      host.append(cell);
+    }
+  }
+}
+
+function label(text) {
+  const el = document.createElement('div');
+  el.className = 'lab';
+  el.textContent = text;
+  return el;
+}
+
+function cellsOf(host) {
+  return host.querySelectorAll('.cell');
+}
+
+function render() {
+  $('codeBadge').textContent = S.code;
+  $('codeBadge').classList.remove('hidden');
+
+  renderStatus();
+  renderControls();
+  renderOwn();
+  renderEnemy();
+}
+
+function renderStatus() {
+  const el = $('status');
+  el.className = 'status';
+  let main = '';
+  let sub = '';
+
+  if (S.error) {
+    el.classList.add('bad');
+    main = S.error;
+  } else if (S.over) {
+    const won = S.winner === S.slot;
+    main = won ? '<b>You win.</b> Every enemy ship is on the bottom.' : 'You lose. Your fleet is gone.';
+    sub = 'Both fleets are revealed below.';
+  } else if (S.phase === 'lobby' || !S.opponent.joined) {
+    el.classList.add('alert');
+    main = 'Waiting for an opponent…';
+    sub = `Share code <b>${S.code}</b> or the invite link.`;
+  } else if (!S.opponent.present) {
+    el.classList.add('alert');
+    main = 'Opponent reconnecting…';
+    sub = 'The game is paused. Their state is safe on the server.';
+  } else if (S.phase === 'placing') {
+    main = S.ready ? 'Fleet locked in.' : 'Arrange your fleet, then hit Ready.';
+    sub = S.ready
+      ? 'Waiting for your opponent to lock in.'
+      : (S.opponent.ready ? 'Your opponent is ready and waiting.' : 'Randomize until you like the layout.');
+  } else if (S.phase === 'playing') {
+    main = S.yourTurn ? '<b>Your turn.</b> Pick a target.' : 'Their turn…';
+    sub = S.yourTurn ? 'Click a cell in enemy waters.' : 'Waiting for their shot.';
+  }
+
+  el.innerHTML = main + (sub ? `<span class="sub">${sub}</span>` : '');
+}
+
+function renderControls() {
+  const placing = S.phase === 'placing' && !S.over;
+  $('randomBtn').classList.toggle('hidden', !placing);
+  $('readyBtn').classList.toggle('hidden', !placing);
+  $('randomBtn').disabled = S.ready;
+  $('readyBtn').disabled = S.ready;
+  $('readyBtn').textContent = S.ready ? 'Ready ✓' : 'Ready';
+}
+
+function renderOwn() {
+  const cells = cellsOf($('ownGrid'));
+  cells.forEach((cell) => {
+    const r = +cell.dataset.r;
+    const c = +cell.dataset.c;
+    const shipIndex = S.grid ? S.grid[r][c] : -1;
+    const ship = shipIndex >= 0 ? S.ships[shipIndex] : null;
+
+    cell.className = 'cell';
+    if (ship) cell.classList.add(ship.sunk ? 'sunkship' : 'ship');
+    if (S.shot[r][c]) cell.classList.add(ship ? 'hit' : 'miss');
+    if (S.lastOwn && S.lastOwn[0] === r && S.lastOwn[1] === c) cell.classList.add('last');
+    cell.textContent = S.shot[r][c] ? (ship ? '✷' : '·') : '';
+  });
+
+  $('ownFleet').replaceChildren(...S.ships.map((s) => chip(s.name, s.sunk)));
+}
+
+function renderEnemy() {
+  const canFire = S.phase === 'playing' && S.yourTurn && !S.over;
+  $('enemyTitle').textContent = S.over ? 'Enemy fleet (revealed)' : 'Enemy waters';
+
+  cellsOf($('enemyGrid')).forEach((cell) => {
+    const r = +cell.dataset.r;
+    const c = +cell.dataset.c;
+    const mark = S.tracking[r][c];
+
+    cell.className = 'cell';
+    // Enemy hulls appear only once the server has revealed them.
+    if (S.reveal) {
+      const shipIndex = S.reveal.grid[r][c];
+      if (shipIndex >= 0 && !mark) cell.classList.add('ship');
+    }
+    if (mark === 'hit') cell.classList.add('hit');
+    if (mark === 'miss') cell.classList.add('miss');
+    if (canFire && !mark) cell.classList.add('aim');
+    if (S.lastEnemy && S.lastEnemy[0] === r && S.lastEnemy[1] === c) cell.classList.add('last');
+    cell.textContent = mark === 'hit' ? '✷' : mark === 'miss' ? '·' : '';
+  });
+
+  const enemyShips = S.reveal ? S.reveal.ships : null;
+  $('enemyFleet').replaceChildren(
+    ...(enemyShips
+      ? enemyShips.map((s) => chip(s.name, s.sunk))
+      : S.enemySunk.map((name) => chip(name, true))),
+  );
+}
+
+function chip(name, sunk) {
+  const el = document.createElement('span');
+  el.className = 'chip' + (sunk ? ' sunk' : '');
+  el.textContent = name;
+  return el;
+}
+
+// --- actions ---------------------------------------------------------------
+
+function randomCode() {
+  let code = '';
+  for (let i = 0; i < 4; i++) code += CODE_ALPHABET[Math.floor(Math.random() * CODE_ALPHABET.length)];
+  return code;
+}
+
+function enterRoom(code) {
+  leaving = false;
+  resetState(code);
+  location.hash = code;
+  $('lobby').classList.add('hidden');
+  $('game').classList.remove('hidden');
+  buildGrid($('ownGrid'), null);
+  buildGrid($('enemyGrid'), fire);
+  render();
+  connect();
+}
+
+function fire(r, c) {
+  if (S.phase !== 'playing' || !S.yourTurn || S.over || S.tracking[r][c]) return;
+  send({ type: 'fire', r, c });
+}
+
+$('createBtn').addEventListener('click', () => enterRoom(randomCode()));
+
+$('joinBtn').addEventListener('click', () => {
+  const code = $('codeInput').value.trim().toUpperCase();
+  if (code) enterRoom(code);
+});
+
+$('codeInput').addEventListener('keydown', (e) => e.key === 'Enter' && $('joinBtn').click());
+
+$('randomBtn').addEventListener('click', () => send({ type: 'randomize' }));
+$('readyBtn').addEventListener('click', () => send({ type: 'ready' }));
+
+$('shareBtn').addEventListener('click', async () => {
+  const link = `${location.origin}/#${S.code}`;
+  try {
+    await navigator.clipboard.writeText(link);
+    $('shareBtn').textContent = 'Copied ✓';
+  } catch {
+    // Clipboard is blocked outside a secure context — show the link instead.
+    $('shareBtn').textContent = link;
+  }
+  setTimeout(() => ($('shareBtn').textContent = 'Copy invite link'), 2500);
+});
+
+$('leaveBtn').addEventListener('click', () => {
+  leaving = true;
+  // Drop the token too, or the reload would just walk straight back in.
+  identity.clear(S.code);
+  if (ws) ws.close();
+  location.hash = '';
+  location.reload();
+});
+
+// Deep link: /#K7QF drops you straight into a room.
+const fromHash = location.hash.replace('#', '').trim().toUpperCase();
+if (fromHash) {
+  $('codeInput').value = fromHash;
+  enterRoom(fromHash);
+}
+</script>
+</body>
+</html>

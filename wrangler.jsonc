@@ -1,0 +1,25 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "battleship",
+  "main": "src/index.js",
+  "compatibility_date": "2026-08-10",
+
+  "durable_objects": {
+    "bindings": [{ "name": "ROOM", "class_name": "Room" }]
+  },
+
+  // One Durable Object per room. SQLite is the only storage backend available
+  // on the Workers Free plan, and the backend is immutable once created.
+  "exports": {
+    "Room": { "type": "durable-object", "storage": "sqlite" }
+  },
+
+  "assets": {
+    "directory": "./public",
+    // Assets are matched before the Worker by default; this guarantees the
+    // WebSocket route reaches the router regardless of what's in ./public.
+    "run_worker_first": ["/api/*"]
+  },
+
+  "observability": { "enabled": true }
+}

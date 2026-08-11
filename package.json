@@ -1,0 +1,17 @@
+{
+  "name": "battleship",
+  "version": "1.0.0",
+  "description": "Battleship over WebSocket — Cloudflare Workers + Durable Objects, server-authoritative",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "test": "node --test test/*.test.mjs",
+    "test:e2e": "node test/integration.mjs"
+  },
+  "license": "ISC",
+  "devDependencies": {
+    "wrangler": "^4.120.1"
+  }
+}
