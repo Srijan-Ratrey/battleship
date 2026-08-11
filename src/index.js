@@ -3,11 +3,13 @@ import { DurableObject } from 'cloudflare:workers';
 import {
   EXTRA_SHOT_ON_HIT,
   applyShot,
+  fleetFromPlacements,
   inBounds,
   newGame,
   newPlayer,
   opponentOf,
   randomFleet,
+  resetForRematch,
   trackingFrom,
 } from './game.js';
 
@@ -95,10 +97,14 @@ export class Room extends DurableObject {
         return this.onHello(ws, game, message);
       case 'randomize':
         return this.onRandomize(ws, game);
+      case 'place':
+        return this.onPlace(ws, game, message);
       case 'ready':
         return this.onReady(ws, game);
       case 'fire':
         return this.onFire(ws, game, message);
+      case 'rematch':
+        return this.onRematch(ws, game);
       default:
         return send(ws, { type: 'error', msg: `Unknown message type: ${message.type}` });
     }
@@ -201,6 +207,26 @@ export class Room extends DurableObject {
     send(ws, { type: 'board', grid, ships });
   }
 
+  async onPlace(ws, game, message) {
+    const slot = ws.deserializeAttachment()?.slot;
+    const me = slot && game.players[slot];
+    if (!me) return send(ws, { type: 'error', msg: 'Join the room first.' });
+    if (game.phase !== 'placing') {
+      return send(ws, { type: 'error', msg: 'You can only rearrange during placement.' });
+    }
+    if (me.ready) return send(ws, { type: 'error', msg: 'Your fleet is already locked in.' });
+
+    // The client proposes positions; the grid is rebuilt and checked here.
+    const fleet = fleetFromPlacements(message.ships);
+    if (!fleet.ok) return send(ws, { type: 'error', msg: fleet.error });
+
+    me.grid = fleet.grid;
+    me.ships = fleet.ships;
+    await this.ctx.storage.put('game', game);
+
+    send(ws, { type: 'board', grid: fleet.grid, ships: fleet.ships });
+  }
+
   async onReady(ws, game) {
     const slot = ws.deserializeAttachment()?.slot;
     const me = slot && game.players[slot];
@@ -281,6 +307,31 @@ export class Room extends DurableObject {
     });
 
     if (result.win) this.sendBoth({ type: 'gameOver', winner: slot, boards: revealBoth(game) });
+  }
+
+  // Both players must ask before the room resets, so one side cannot wipe a
+  // finished board out from under the other.
+  async onRematch(ws, game) {
+    const slot = ws.deserializeAttachment()?.slot;
+    const me = slot && game.players[slot];
+    if (!me) return send(ws, { type: 'error', msg: 'Join the room first.' });
+    if (game.phase !== 'over') return send(ws, { type: 'error', msg: 'The game is not over yet.' });
+
+    me.rematch = true;
+    const foe = opponentOf(slot);
+
+    if (!(game.players.A?.rematch && game.players.B?.rematch)) {
+      await this.ctx.storage.put('game', game);
+      send(ws, { type: 'rematchPending' });
+      this.sendTo(foe, { type: 'rematchOffer' });
+      return;
+    }
+
+    resetForRematch(game);
+    await this.ctx.storage.put('game', game);
+    // A full resync each — same machinery a rejoin uses, so the client has one
+    // code path for "here is the whole world again".
+    for (const s of ['A', 'B']) this.sendTo(s, this.resyncFor(game, s));
   }
 
   // -- state replay ---------------------------------------------------------

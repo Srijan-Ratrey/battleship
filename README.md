@@ -48,9 +48,9 @@ the whole ruleset under plain Node.
 ## Tests
 
 ```bash
-npm test                       # 13 rules tests — placement fuzz, hit/sunk/win, bounds
+npm test                       # 21 rules tests — placement fuzz, validation, hit/sunk/win
 npm run dev                    # in one terminal
-npm run test:e2e               # in another: 11 checks over real sockets
+npm run test:e2e               # in another: 13 checks over real sockets
 ```
 
 The end-to-end suite plays a full match and asserts the thing that matters. It
@@ -65,9 +65,14 @@ seeing A's own Destroyer, not a leak.)
 
 ## Protocol
 
-Client → server: `hello {playerId?}`, `randomize`, `ready`, `fire {r,c}`.
-The literal string `ping` is auto-answered with `pong` by the runtime without
-waking the room.
+Client → server: `hello {playerId?}`, `randomize`, `place {ships}`, `ready`,
+`fire {r,c}`, `rematch`. The literal string `ping` is auto-answered with `pong`
+by the runtime without waking the room.
+
+`place` carries only `[{name, r, c, horizontal}]` — never a grid. The server
+rebuilds the grid itself via `fleetFromPlacements` and rejects anything that
+isn't a legal fleet, so a tampered client cannot stack its ships on one cell,
+hang them off the board, or field six of them.
 
 Server → client:
 
@@ -83,11 +88,16 @@ Server → client:
 | `incoming` | `{r, c, hit, sunk, shipName, lose, yourTurn}` |
 | `resync` | `{phase, slot, ready, yourTurn, board, tracking, opponent, over, winner, boards}` |
 | `gameOver` | `{winner, boards}` — the only message carrying both fleets |
+| `rematchPending` | — your request is in, waiting on the other player |
+| `rematchOffer` | — the other player wants a rematch |
 | `error` | `{msg}` |
 
-Two additions to the original plan: `opponent` also carries the room `phase`
-(so the waiting player learns the room advanced), and `youReady` acknowledges
-your own lock-in rather than letting the client assume it.
+Additions to the original plan: `opponent` also carries the room `phase` (so the
+waiting player learns the room advanced), `youReady` acknowledges your own
+lock-in rather than letting the client assume it, and the two `rematch*`
+messages. A granted rematch is delivered as a plain `resync` — the same message
+a rejoin uses — so the client has one code path for "here is the whole world
+again".
 
 `shipName` is sent only when a ship **sinks** — naming it on a plain hit would
 leak the ship's size.
@@ -98,8 +108,14 @@ leak the ship's size.
   [src/game.js](src/game.js) flips this back to strict one-shot-per-turn rules.
   The turn logic in `onFire` is the only reader, and the banner tells the player
   why the turn hasn't changed hands.
-- Random placement with unlimited rerolls until you click Ready; Ready locks the
-  fleet.
+- **Arrange your fleet by hand:** drag a ship to move it, click it to rotate, or
+  hit Randomize. Ready locks the fleet. Illegal arrangements are refused by the
+  server, and the client shows a red hull while you drag somewhere invalid.
+- **Rematch:** at game over a modal declares the result with your shot count and
+  accuracy. Both players must click *Play again* before the room resets — one
+  side alone cannot wipe a finished board out from under the other. The rematch
+  keeps the same room, slots and identities, and deals fresh fleets.
+- Hits explode, misses splash, and taking a hit shakes your board.
 - Rejoin: your `playerId` lives in `sessionStorage`, so a reload or a dropped
   socket puts you back in your slot with your board, your tracking grid, and the
   correct turn. It is **per tab** on purpose — `localStorage` is shared across
@@ -112,5 +128,7 @@ leak the ship's size.
 
 `onFire` in [src/index.js](src/index.js) re-checks phase, turn, bounds, and
 whether the cell was already fired on **every** shot. The client's opinion about
-whose turn it is carries no weight. `randomize` replies only to the requesting
-socket, and `revealBoth` is called from exactly one place: game over.
+whose turn it is carries no weight. `onPlace` never accepts a grid — it rebuilds
+one from the proposed positions and validates it. `randomize` and `place` reply
+only to the requesting socket, and `revealBoth` is called from exactly one
+place: game over.

@@ -169,6 +169,11 @@
     aspect-ratio: 1; background: transparent;
     border: 1px solid rgba(140, 195, 220, .10);
   }
+  /* Cells paint above the hulls so pegs read on top, which also means they'd
+     swallow the pointer. Your own board is never clicked, so let events fall
+     through to the hulls underneath and make them draggable. */
+  #ownGrid .cell { pointer-events: none; }
+
   .cell.aim { cursor: crosshair; }
   .cell.aim:hover { background: rgba(58, 212, 200, .16); box-shadow: inset 0 0 0 1px var(--teal); }
 
@@ -229,6 +234,12 @@
     border-radius: 2px; box-shadow: 0 1px 2px rgba(0,0,0,.5);
   }
   .hull.v::after { width: 46%; height: 26%; }
+  /* The ship layer ignores pointers; individual hulls opt back in while you
+     are still arranging your fleet. */
+  .hull.draggable { pointer-events: auto; cursor: grab; touch-action: none; }
+  .hull.draggable:hover { filter: brightness(1.12); }
+  .hull.dragging { cursor: grabbing; z-index: 4; filter: brightness(1.2); box-shadow: 0 10px 22px rgba(0,0,0,.6); }
+  .hull.invalid { background: linear-gradient(180deg, #d17878, #7c3535); }
   .hull.sunk {
     background: linear-gradient(180deg, #6b4a4a 0%, #4a2f33 50%, #2c1c20 100%);
     filter: saturate(.55) brightness(.8);
@@ -251,6 +262,111 @@
   .chip.sunk { color: #ff9b8a; border-color: #6e3030; background: rgba(239,76,76,.08); }
   .chip.sunk .silhouette { background: linear-gradient(180deg, #7c5252, #3a2226); }
   .chip.sunk .name { text-decoration: line-through; }
+
+  /* ---------- impact effects ---------- */
+
+  .fx {
+    position: absolute; left: 50%; top: 50%;
+    width: 190%; height: 190%;
+    transform: translate(-50%, -50%);
+    pointer-events: none; z-index: 5;
+  }
+  .fx > * { position: absolute; inset: 0; border-radius: 50%; }
+
+  .fx .core {
+    background: radial-gradient(circle, #fff 0%, #ffe27a 22%, #ff9a2e 46%, #e8352f 66%, rgba(140,20,10,0) 74%);
+    animation: boom-core .5s ease-out forwards;
+  }
+  @keyframes boom-core {
+    0%   { transform: scale(.12); opacity: 1; }
+    45%  { transform: scale(.85); opacity: 1; }
+    100% { transform: scale(1.12); opacity: 0; }
+  }
+
+  .fx .ring {
+    border: 2px solid rgba(255, 214, 140, .95);
+    animation: boom-ring .6s cubic-bezier(.15,.75,.3,1) forwards;
+  }
+  @keyframes boom-ring {
+    0%   { transform: scale(.15); opacity: 1; }
+    100% { transform: scale(1.05); opacity: 0; }
+  }
+
+  .fx .smoke {
+    background: radial-gradient(circle, rgba(70,70,80,.8) 0%, rgba(40,40,50,0) 68%);
+    animation: boom-smoke 1.15s ease-out forwards;
+  }
+  @keyframes boom-smoke {
+    0%   { transform: scale(.25); opacity: 0; }
+    30%  { opacity: .8; }
+    100% { transform: scale(1.05) translateY(-22%); opacity: 0; }
+  }
+
+  .fx .spark {
+    inset: auto; left: 50%; top: 50%;
+    width: 3px; height: 3px; border-radius: 2px;
+    background: #ffd889; box-shadow: 0 0 7px #ffae3a;
+    animation: boom-spark .62s ease-out forwards;
+  }
+  @keyframes boom-spark {
+    0%   { transform: translate(-50%, -50%) rotate(var(--a)) translateX(2px); opacity: 1; }
+    100% { transform: translate(-50%, -50%) rotate(var(--a)) translateX(var(--d)); opacity: 0; }
+  }
+
+  .fx .ripple {
+    border: 2px solid rgba(198, 232, 246, .85);
+    animation: splash-ripple .8s ease-out forwards;
+  }
+  .fx .ripple:nth-child(2) { animation-delay: .12s; }
+  .fx .ripple:nth-child(3) { animation-delay: .26s; }
+  @keyframes splash-ripple {
+    0%   { transform: scale(.18); opacity: .9; }
+    100% { transform: scale(.85); opacity: 0; }
+  }
+
+  .shake { animation: shake .42s ease-in-out; }
+  @keyframes shake {
+    10%, 90% { transform: translateX(-2px); }
+    20%, 80% { transform: translateX(3px); }
+    30%, 50%, 70% { transform: translateX(-5px); }
+    40%, 60% { transform: translateX(5px); }
+  }
+
+  /* ---------- end-of-game modal ---------- */
+
+  .backdrop {
+    position: fixed; inset: 0; z-index: 50;
+    display: flex; align-items: center; justify-content: center; padding: 1rem;
+    background: rgba(3, 10, 18, .74);
+    backdrop-filter: blur(7px); -webkit-backdrop-filter: blur(7px);
+    animation: fade .28s ease;
+  }
+  @keyframes fade { from { opacity: 0; } to { opacity: 1; } }
+
+  .modal {
+    width: min(430px, 100%); text-align: center;
+    background: linear-gradient(180deg, #172b3d, #0b1a26);
+    border: 1px solid var(--line); border-radius: .9rem;
+    padding: 2.1rem 1.8rem 1.5rem;
+    box-shadow: 0 30px 80px rgba(0,0,0,.65), inset 0 1px 0 rgba(255,255,255,.07);
+    animation: rise .34s cubic-bezier(.2,.9,.3,1);
+  }
+  @keyframes rise { from { transform: translateY(14px) scale(.97); opacity: 0; } }
+
+  .verdict {
+    font: 800 2.1rem/1 ui-sans-serif, system-ui, sans-serif;
+    letter-spacing: .16em; text-transform: uppercase; margin: 0 0 .5rem;
+  }
+  .modal.win  .verdict { color: var(--teal); text-shadow: 0 0 28px rgba(58,212,200,.5); }
+  .modal.lose .verdict { color: var(--red);  text-shadow: 0 0 28px rgba(239,76,76,.45); }
+  .modal .line { color: var(--dim); font-size: .9rem; margin: 0 0 1.5rem; }
+
+  .stats { display: flex; justify-content: center; gap: 1.5rem; margin-bottom: 1.6rem; }
+  .stat b { display: block; font: 700 1.35rem/1.1 ui-monospace, Menlo, monospace; color: var(--ink); }
+  .stat span { font-size: .64rem; text-transform: uppercase; letter-spacing: .11em; color: var(--dim); }
+
+  .actions { display: flex; gap: .6rem; justify-content: center; flex-wrap: wrap; }
+  .note { margin: 1.1rem 0 0; font-size: .8rem; color: var(--amber); min-height: 1.1rem; }
 
   /* ---------- lobby ---------- */
 
@@ -298,6 +414,7 @@
     <div class="controls">
       <button id="randomBtn">Randomize fleet</button>
       <button id="readyBtn" class="primary">Ready</button>
+      <button id="resultBtn" class="primary">Play again</button>
       <button id="shareBtn">Copy invite link</button>
       <button id="leaveBtn">Leave</button>
     </div>
@@ -315,6 +432,23 @@
       </div>
     </div>
   </section>
+</div>
+
+<div id="modal" class="backdrop hidden">
+  <div class="modal" id="modalBox">
+    <h2 class="verdict" id="verdict">Victory</h2>
+    <p class="line" id="verdictLine"></p>
+    <div class="stats">
+      <div class="stat"><b id="statShots">0</b><span>Shots</span></div>
+      <div class="stat"><b id="statHits">0</b><span>Hits</span></div>
+      <div class="stat"><b id="statAcc">0%</b><span>Accuracy</span></div>
+    </div>
+    <div class="actions">
+      <button id="againBtn" class="primary">Play again</button>
+      <button id="closeBtn">View boards</button>
+    </div>
+    <p class="note" id="rematchNote"></p>
+  </div>
 </div>
 
 <script>
@@ -356,6 +490,8 @@ function resetState(code) {
     // explain why the turn hasn't changed hands.
     streak: null,
     theirStreak: null,
+    rematchAsked: false,
+    rematchOffered: false,
     error: null,
   };
 }
@@ -464,6 +600,7 @@ function handle(m) {
       // turn would still be claiming credit when the turn came back around.
       S.streak = m.yourTurn ? { hit: m.hit, sunk: m.sunk, shipName: m.shipName } : null;
       if (m.sunk) S.enemySunk.push(m.shipName);
+      impact($('enemyGrid'), m.r, m.c, m.hit);
       break;
 
     case 'incoming':
@@ -472,6 +609,8 @@ function handle(m) {
       S.yourTurn = m.yourTurn;
       S.theirStreak = m.yourTurn ? null : { hit: m.hit, sunk: m.sunk, shipName: m.shipName };
       if (m.sunk) markOwnSunk(m.shipName);
+      impact($('ownGrid'), m.r, m.c, m.hit);
+      if (m.hit) shake($('ownCase'));
       break;
 
     case 'resync':
@@ -486,8 +625,17 @@ function handle(m) {
       S.opponent = m.opponent;
       S.over = m.over;
       S.winner = m.winner;
-      if (m.boards) S.reveal = m.boards[S.slot === 'A' ? 'B' : 'A'];
-      S.enemySunk = S.reveal ? S.reveal.ships.filter((s) => s.sunk).map((s) => s.name) : S.enemySunk;
+      // A rematch replays the whole world through this same message, so every
+      // trace of the finished game has to be cleared here, not just merged.
+      S.reveal = m.boards ? m.boards[S.slot === 'A' ? 'B' : 'A'] : null;
+      S.enemySunk = S.reveal ? S.reveal.ships.filter((s) => s.sunk).map((s) => s.name) : [];
+      S.streak = null;
+      S.theirStreak = null;
+      S.lastOwn = null;
+      S.lastEnemy = null;
+      S.rematchAsked = false;
+      S.rematchOffered = false;
+      if (!m.over) closeModal();
       break;
 
     case 'gameOver':
@@ -495,6 +643,16 @@ function handle(m) {
       S.phase = 'over';
       S.winner = m.winner;
       S.reveal = m.boards[S.slot === 'A' ? 'B' : 'A'];
+      openModal();
+      break;
+
+    case 'rematchPending':
+      S.rematchAsked = true;
+      break;
+
+    case 'rematchOffer':
+      S.rematchOffered = true;
+      openModal();
       break;
 
     case 'error':
@@ -548,24 +706,152 @@ const cellsOf = (host) => host.querySelectorAll('.cell');
 
 // One element per ship, spanning its cells — so a Carrier reads as a single
 // five-cell hull rather than five disconnected squares.
-function drawShips(host, ships, ghost) {
+function drawShips(host, ships, ghost, interactive) {
   const layer = host.querySelector('.ships');
   layer.replaceChildren();
   if (!ships) return;
 
-  for (const ship of ships) {
+  ships.forEach((ship, index) => {
     const rows = ship.cells.map(([r]) => r);
     const cols = ship.cells.map(([, c]) => c);
     const horizontal = new Set(rows).size === 1;
 
     const el = document.createElement('div');
-    el.className = `hull ${horizontal ? 'h' : 'v'}${ship.sunk ? ' sunk' : ''}${ghost ? ' ghost' : ''}`;
+    el.className = `hull ${horizontal ? 'h' : 'v'}`
+      + (ship.sunk ? ' sunk' : '')
+      + (ghost ? ' ghost' : '')
+      + (interactive ? ' draggable' : '');
+    el.dataset.index = index;
     el.style.left = `${Math.min(...cols) * 10}%`;
     el.style.top = `${Math.min(...rows) * 10}%`;
     el.style.width = `${(horizontal ? ship.size : 1) * 10}%`;
     el.style.height = `${(horizontal ? 1 : ship.size) * 10}%`;
+    if (interactive) {
+      el.title = `${ship.name} — drag to move, click to rotate`;
+      el.addEventListener('pointerdown', startDrag);
+    }
     layer.append(el);
+  });
+}
+
+// --- manual placement ------------------------------------------------------
+
+let drag = null;
+
+// The rendered ships carry their cells; this recovers the origin + orientation
+// that the placement protocol speaks in.
+function layoutFromShips(ships) {
+  return ships.map((ship) => {
+    const rows = ship.cells.map(([r]) => r);
+    const cols = ship.cells.map(([, c]) => c);
+    return {
+      name: ship.name,
+      size: ship.size,
+      r: Math.min(...rows),
+      c: Math.min(...cols),
+      horizontal: new Set(rows).size === 1,
+    };
+  });
+}
+
+// A local pre-check so the drag can show red before we ask the server. The
+// server re-validates regardless; this is only for feedback.
+function layoutValid(layout) {
+  const taken = new Set();
+  for (const ship of layout) {
+    for (let i = 0; i < ship.size; i++) {
+      const r = ship.horizontal ? ship.r : ship.r + i;
+      const c = ship.horizontal ? ship.c + i : ship.c;
+      if (r < 0 || r >= SIZE || c < 0 || c >= SIZE) return false;
+      const key = `${r},${c}`;
+      if (taken.has(key)) return false;
+      taken.add(key);
+    }
   }
+  return true;
+}
+
+const clamp = (v, max) => Math.max(0, Math.min(v, max));
+
+function startDrag(event) {
+  if (S.phase !== 'placing' || S.ready) return;
+  event.preventDefault();
+
+  const el = event.currentTarget;
+  const index = Number(el.dataset.index);
+  const rect = $('ownGrid').querySelector('.ships').getBoundingClientRect();
+  const layout = layoutFromShips(S.ships);
+  const ship = layout[index];
+
+  const pointerR = Math.floor((event.clientY - rect.top) / (rect.height / SIZE));
+  const pointerC = Math.floor((event.clientX - rect.left) / (rect.width / SIZE));
+  // Which cell along the hull you grabbed, so it doesn't jump under the cursor.
+  const grab = ship.horizontal ? pointerC - ship.c : pointerR - ship.r;
+
+  drag = { el, index, layout, grab, rect, moved: false, startX: event.clientX, startY: event.clientY };
+  el.classList.add('dragging');
+  window.addEventListener('pointermove', onDragMove);
+  window.addEventListener('pointerup', endDrag, { once: true });
+}
+
+function onDragMove(event) {
+  if (!drag) return;
+  const { rect, layout, index, grab } = drag;
+
+  if (Math.abs(event.clientX - drag.startX) > 3 || Math.abs(event.clientY - drag.startY) > 3) {
+    drag.moved = true;
+  }
+
+  const ship = layout[index];
+  const pointerR = Math.floor((event.clientY - rect.top) / (rect.height / SIZE));
+  const pointerC = Math.floor((event.clientX - rect.left) / (rect.width / SIZE));
+
+  const r = clamp(ship.horizontal ? pointerR : pointerR - grab, SIZE - (ship.horizontal ? 1 : ship.size));
+  const c = clamp(ship.horizontal ? pointerC - grab : pointerC, SIZE - (ship.horizontal ? ship.size : 1));
+
+  drag.candidate = { ...ship, r, c };
+  drag.ok = layoutValid(layout.map((s, i) => (i === index ? drag.candidate : s)));
+
+  drag.el.style.left = `${c * 10}%`;
+  drag.el.style.top = `${r * 10}%`;
+  drag.el.classList.toggle('invalid', !drag.ok);
+}
+
+function endDrag() {
+  window.removeEventListener('pointermove', onDragMove);
+  if (!drag) return;
+
+  const { el, index, layout, moved, candidate, ok } = drag;
+  el.classList.remove('dragging', 'invalid');
+  drag = null;
+
+  // A press that never moved is a rotate, not a move.
+  if (!moved) return rotateShip(index, layout);
+  if (!ok || !candidate) return render(); // snap back to the server's truth
+
+  commitLayout(layout.map((s, i) => (i === index ? candidate : s)));
+}
+
+function rotateShip(index, layout) {
+  const ship = layout[index];
+  const flipped = { ...ship, horizontal: !ship.horizontal };
+  flipped.r = clamp(flipped.r, SIZE - (flipped.horizontal ? 1 : flipped.size));
+  flipped.c = clamp(flipped.c, SIZE - (flipped.horizontal ? flipped.size : 1));
+
+  const next = layout.map((s, i) => (i === index ? flipped : s));
+  if (!layoutValid(next)) {
+    S.error = `The ${ship.name} has no room to turn there.`;
+    return render();
+  }
+  commitLayout(next);
+}
+
+// Propose, don't apply: the board we draw is whatever the server sends back.
+function commitLayout(layout) {
+  send({
+    type: 'place',
+    ships: layout.map(({ name, r, c, horizontal }) => ({ name, r, c, horizontal })),
+  });
 }
 
 function render() {
@@ -576,6 +862,7 @@ function render() {
   renderControls();
   renderOwn();
   renderEnemy();
+  if (!$('modal').classList.contains('hidden')) renderRematchNote();
 }
 
 function renderStatus() {
@@ -603,7 +890,8 @@ function renderStatus() {
     main = S.ready ? 'Fleet locked in.' : 'Arrange your fleet, then hit Ready.';
     sub = S.ready
       ? 'Waiting for your opponent to lock in.'
-      : (S.opponent.ready ? 'Your opponent is ready and waiting.' : 'Randomize until you like the layout.');
+      : 'Drag a ship to move it, click it to rotate — or randomize.'
+        + (S.opponent.ready ? ' Your opponent is ready and waiting.' : '');
   } else if (S.phase === 'playing' && S.yourTurn) {
     if (S.streak?.hit) el.classList.add('hot');
     main = S.streak?.hit ? '<b>Hit — fire again.</b>' : '<b>Your turn.</b> Pick a target.';
@@ -629,11 +917,88 @@ function renderControls() {
   $('randomBtn').disabled = S.ready;
   $('readyBtn').disabled = S.ready;
   $('readyBtn').textContent = S.ready ? 'Ready ✓' : 'Ready';
+  // Closing the modal shouldn't be a dead end.
+  $('resultBtn').classList.toggle('hidden', !S.over);
+}
+
+// --- impact effects --------------------------------------------------------
+
+// Appended to the cell rather than driven by a class, so it survives the next
+// render() pass and cleans itself up.
+function impact(host, r, c, hit) {
+  const cell = host.querySelector(`.cell[data-r="${r}"][data-c="${c}"]`);
+  if (!cell) return;
+
+  const fx = document.createElement('span');
+  fx.className = 'fx';
+  if (hit) {
+    const sparks = [0, 48, 96, 144, 192, 240, 288, 330]
+      .map((a) => `<span class="spark" style="--a:${a}deg;--d:${16 + Math.round(Math.random() * 16)}px"></span>`)
+      .join('');
+    fx.innerHTML = `<span class="smoke"></span><span class="core"></span><span class="ring"></span>${sparks}`;
+  } else {
+    fx.innerHTML = '<span class="ripple"></span><span class="ripple"></span><span class="ripple"></span>';
+  }
+
+  cell.append(fx);
+  setTimeout(() => fx.remove(), 1300);
+}
+
+function shake(el) {
+  el.classList.remove('shake');
+  void el.offsetWidth; // restart the animation if two hits land in a row
+  el.classList.add('shake');
+  setTimeout(() => el.classList.remove('shake'), 460);
+}
+
+// --- end-of-game modal -----------------------------------------------------
+
+function openModal() {
+  const won = S.winner === S.slot;
+  const shots = S.tracking.flat().filter((v) => v !== null).length;
+  const hits = S.tracking.flat().filter((v) => v === 'hit').length;
+
+  $('modalBox').className = `modal ${won ? 'win' : 'lose'}`;
+  $('verdict').textContent = won ? 'Victory' : 'Defeat';
+  $('verdictLine').textContent = won
+    ? 'Every enemy ship is on the bottom.'
+    : 'Your fleet has been sunk.';
+  $('statShots').textContent = shots;
+  $('statHits').textContent = hits;
+  $('statAcc').textContent = shots ? `${Math.round((hits / shots) * 100)}%` : '0%';
+
+  renderRematchNote();
+  $('modal').classList.remove('hidden');
+}
+
+function closeModal() {
+  $('modal').classList.add('hidden');
+}
+
+function renderRematchNote() {
+  const note = $('rematchNote');
+  const button = $('againBtn');
+
+  if (S.rematchAsked) {
+    note.textContent = S.rematchOffered ? 'Starting a new game…' : 'Waiting for your opponent…';
+    button.disabled = true;
+    button.textContent = 'Play again ✓';
+  } else if (S.rematchOffered) {
+    note.textContent = 'Your opponent wants a rematch.';
+    button.disabled = false;
+    button.textContent = 'Accept rematch';
+  } else {
+    note.textContent = S.opponent.present ? '' : 'Your opponent has disconnected.';
+    button.disabled = false;
+    button.textContent = 'Play again';
+  }
 }
 
 function renderOwn() {
   $('ownCase').classList.toggle('live', S.phase === 'playing' && !S.yourTurn && !S.over);
-  drawShips($('ownGrid'), S.ships, false);
+  // Don't rebuild hulls mid-drag; it would yank the element out from under the
+  // pointer if a message happens to land.
+  if (!drag) drawShips($('ownGrid'), S.ships, false, S.phase === 'placing' && !S.ready);
 
   cellsOf($('ownGrid')).forEach((cell) => {
     const r = +cell.dataset.r;
@@ -732,6 +1097,14 @@ $('codeInput').addEventListener('keydown', (e) => e.key === 'Enter' && $('joinBt
 
 $('randomBtn').addEventListener('click', () => send({ type: 'randomize' }));
 $('readyBtn').addEventListener('click', () => send({ type: 'ready' }));
+
+$('againBtn').addEventListener('click', () => {
+  send({ type: 'rematch' });
+  S.rematchAsked = true;
+  renderRematchNote();
+});
+$('closeBtn').addEventListener('click', closeModal);
+$('resultBtn').addEventListener('click', openModal);
 
 $('shareBtn').addEventListener('click', async () => {
   const link = `${location.origin}/#${S.code}`;

@@ -156,6 +156,38 @@ check('randomize reshuffles only the requester', async () => {
   assert.equal(state.b.received.some((m) => m.type === 'board'), false);
 });
 
+check('manual placement is accepted, and illegal layouts are refused', async () => {
+  const legal = [
+    { name: 'Carrier', r: 0, c: 0, horizontal: true },
+    { name: 'Battleship', r: 2, c: 0, horizontal: true },
+    { name: 'Cruiser', r: 4, c: 0, horizontal: true },
+    { name: 'Submarine', r: 6, c: 0, horizontal: true },
+    { name: 'Destroyer', r: 8, c: 0, horizontal: false },
+  ];
+
+  state.a.send({ type: 'place', ships: legal });
+  const board = await state.a.waitFor('board');
+  assert.equal(board.grid[0][0], 0);
+  assert.equal(board.grid[9][0], 4, 'the vertical Destroyer should reach 9,0');
+  assert.equal(board.grid.flat().filter((v) => v !== -1).length, TOTAL_SHIP_CELLS);
+  state.gridA = board.grid;
+
+  const reject = async (ships, pattern) => {
+    state.a.send({ type: 'place', ships });
+    assert.match((await state.a.waitFor('error')).msg, pattern);
+  };
+
+  await reject([...legal.slice(0, 4), { name: 'Destroyer', r: 0, c: 0, horizontal: true }], /overlaps/i);
+  await reject([{ name: 'Carrier', r: 0, c: 7, horizontal: true }, ...legal.slice(1)], /hangs off/i);
+  await reject(legal.slice(0, 3), /exactly/i);
+  await reject('not a fleet', /exactly/i);
+
+  // B never hears about any of it.
+  assert.equal(state.b.received.some((m) => m.type === 'board'), false);
+  // The rejoin check later asserts this grid survived, which proves none of the
+  // rejected layouts mutated the board.
+});
+
 check('both ready starts the game with A to move', async () => {
   state.a.send({ type: 'ready' });
   await state.a.waitFor('youReady');
@@ -373,6 +405,34 @@ check('the enemy fleet never crossed the wire before game over', async () => {
     .map((f) => JSON.parse(f))
     .filter((m) => m.type === 'fireResult' && m.hit).length;
   assert.equal(hits, TOTAL_SHIP_CELLS, `winner should have landed exactly ${TOTAL_SHIP_CELLS} hits`);
+});
+
+check('a rematch needs both players and resets the room', async () => {
+  state.a.send({ type: 'rematch' });
+  await state.a.waitFor('rematchPending');
+  await state.b.waitFor('rematchOffer');
+
+  // One player alone must not reset a finished board out from under the other.
+  assert.equal(state.b.received.some((m) => m.type === 'resync'), false);
+
+  state.b.send({ type: 'rematch' });
+  const resyncA = await state.a.waitFor('resync');
+  const resyncB = await state.b.waitFor('resync');
+
+  for (const r of [resyncA, resyncB]) {
+    assert.equal(r.phase, 'placing');
+    assert.equal(r.over, false);
+    assert.equal(r.winner, null);
+    assert.equal(r.ready, false, 'both must re-confirm their fleet');
+    assert.equal(r.boards, null, 'the old reveal must not ride along');
+    assert.equal(r.tracking.flat().every((v) => v === null), true, 'tracking must be cleared');
+    assert.equal(r.board.shot.flat().some(Boolean), false, 'damage must be cleared');
+    assert.equal(r.board.ships.every((s) => s.hits === 0 && !s.sunk), true, 'fresh fleet expected');
+  }
+
+  // Same players, same slots.
+  assert.equal(resyncA.slot, 'A');
+  assert.equal(resyncB.slot, 'B');
 });
 
 // ---------------------------------------------------------------------------

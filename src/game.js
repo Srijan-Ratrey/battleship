@@ -70,9 +70,76 @@ export function randomFleet() {
   return { grid, ships };
 }
 
+// Rebuilds a fleet from a client-supplied arrangement. The client may propose a
+// layout, but it never supplies the grid — this recomputes it and rejects
+// anything that isn't a legal fleet, so a tampered client cannot stack its ships
+// on one cell or hang them off the board.
+export function fleetFromPlacements(placements) {
+  if (!Array.isArray(placements) || placements.length !== SHIPS.length) {
+    return { ok: false, error: `A fleet is exactly ${SHIPS.length} ships.` };
+  }
+
+  const grid = filledGrid(-1);
+  const ships = [];
+
+  for (let index = 0; index < SHIPS.length; index++) {
+    const spec = SHIPS[index];
+    const placement = placements.find((p) => p && p.name === spec.name);
+    if (!placement) return { ok: false, error: `Your fleet is missing its ${spec.name}.` };
+
+    const { r, c } = placement;
+    const horizontal = Boolean(placement.horizontal);
+    if (!inBounds(r, c)) return { ok: false, error: `The ${spec.name} starts off the board.` };
+
+    const cells = [];
+    for (let i = 0; i < spec.size; i++) {
+      const cr = horizontal ? r : r + i;
+      const cc = horizontal ? c + i : c;
+      if (!inBounds(cr, cc)) return { ok: false, error: `The ${spec.name} hangs off the board.` };
+      if (grid[cr][cc] !== -1) return { ok: false, error: `The ${spec.name} overlaps another ship.` };
+      cells.push([cr, cc]);
+    }
+
+    for (const [cr, cc] of cells) grid[cr][cc] = index;
+    ships.push({ name: spec.name, size: spec.size, cells, hits: 0, sunk: false });
+  }
+
+  return { ok: true, grid, ships };
+}
+
 export function newPlayer(playerId) {
   const { grid, ships } = randomFleet();
-  return { playerId, present: true, ready: false, grid, ships, shot: emptyShotGrid() };
+  return {
+    playerId,
+    present: true,
+    ready: false,
+    rematch: false,
+    grid,
+    ships,
+    shot: emptyShotGrid(),
+  };
+}
+
+// Rematch in the same room: fresh fleets and a cleared history, but the same
+// two players in the same slots. Mutates and returns `game`.
+export function resetForRematch(game) {
+  for (const slot of ['A', 'B']) {
+    const player = game.players[slot];
+    if (!player) continue;
+
+    const { grid, ships } = randomFleet();
+    player.grid = grid;
+    player.ships = ships;
+    player.shot = emptyShotGrid();
+    player.ready = false;
+    player.rematch = false;
+  }
+
+  game.phase = 'placing';
+  game.turn = 'A';
+  game.winner = null;
+  game.shotLog = { A: [], B: [] };
+  return game;
 }
 
 export function newGame(code) {

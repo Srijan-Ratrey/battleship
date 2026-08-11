@@ -7,12 +7,14 @@ import {
   TOTAL_SHIP_CELLS,
   applyShot,
   emptyShotGrid,
+  fleetFromPlacements,
   inBounds,
   newGame,
   newPlayer,
   opponentOf,
   randomCode,
   randomFleet,
+  resetForRematch,
   trackingFrom,
 } from '../src/game.js';
 
@@ -165,6 +167,117 @@ describe('trackingFrom', () => {
     assert.equal(grid[4][7], 'miss');
     assert.equal(grid[9][9], null);
     assert.equal(grid.flat().filter((v) => v !== null).length, 2);
+  });
+});
+
+describe('fleetFromPlacements', () => {
+  // Five rows, none touching — the reference legal arrangement.
+  const legal = [
+    { name: 'Carrier', r: 0, c: 0, horizontal: true },
+    { name: 'Battleship', r: 2, c: 0, horizontal: true },
+    { name: 'Cruiser', r: 4, c: 0, horizontal: true },
+    { name: 'Submarine', r: 6, c: 0, horizontal: true },
+    { name: 'Destroyer', r: 8, c: 0, horizontal: true },
+  ];
+  const swap = (name, patch) => legal.map((p) => (p.name === name ? { ...p, ...patch } : p));
+
+  it('accepts a legal arrangement and rebuilds the grid itself', () => {
+    const fleet = fleetFromPlacements(legal);
+
+    assert.equal(fleet.ok, true);
+    assert.equal(fleet.ships.length, SHIPS.length);
+    assert.equal(fleet.grid.flat().filter((v) => v !== -1).length, TOTAL_SHIP_CELLS);
+    assert.equal(fleet.grid[0][0], 0);
+    assert.equal(fleet.grid[0][4], 0, 'the Carrier should span five cells');
+    assert.equal(fleet.grid[0][5], -1);
+    assert.equal(fleet.ships.every((s) => s.hits === 0 && !s.sunk), true);
+  });
+
+  it('places vertical ships down the board', () => {
+    const fleet = fleetFromPlacements(swap('Destroyer', { horizontal: false }));
+
+    assert.equal(fleet.ok, true);
+    assert.equal(fleet.grid[8][0], 4);
+    assert.equal(fleet.grid[9][0], 4);
+    assert.deepEqual(fleet.ships[4].cells, [[8, 0], [9, 0]]);
+  });
+
+  it('rejects overlapping ships', () => {
+    const fleet = fleetFromPlacements(swap('Destroyer', { r: 0, c: 0 }));
+    assert.equal(fleet.ok, false);
+    assert.match(fleet.error, /overlaps/i);
+  });
+
+  it('rejects a ship hanging off the edge', () => {
+    assert.match(fleetFromPlacements(swap('Carrier', { c: 7 })).error, /hangs off/i);
+    assert.match(fleetFromPlacements(swap('Carrier', { r: 7, horizontal: false })).error, /hangs off/i);
+    assert.match(fleetFromPlacements(swap('Carrier', { r: -1 })).error, /off the board/i);
+  });
+
+  it('rejects a fleet that is the wrong size, misnamed, or not a fleet at all', () => {
+    assert.match(fleetFromPlacements(legal.slice(0, 4)).error, /exactly/i);
+    assert.match(fleetFromPlacements([...legal, legal[0]]).error, /exactly/i);
+    assert.match(fleetFromPlacements(swap('Destroyer', { name: 'Canoe' })).error, /missing its Destroyer/i);
+
+    for (const junk of [null, undefined, 'fleet', 42, {}, [null, null, null, null, null]]) {
+      assert.equal(fleetFromPlacements(junk).ok, false, `expected ${JSON.stringify(junk)} to be rejected`);
+    }
+  });
+
+  it('never trusts a supplied grid — only the placements', () => {
+    // A tampered client sending its own grid alongside gets it ignored.
+    const fleet = fleetFromPlacements(legal.map((p) => ({ ...p, grid: 'nonsense', size: 99 })));
+    assert.equal(fleet.ok, true);
+    assert.equal(fleet.grid.flat().filter((v) => v !== -1).length, TOTAL_SHIP_CELLS);
+    assert.deepEqual(fleet.ships.map((s) => s.size), SHIPS.map((s) => s.size));
+  });
+});
+
+describe('resetForRematch', () => {
+  it('clears the finished game but keeps both players in their slots', () => {
+    const game = newGame('TEST');
+    game.players.A = newPlayer('token-a');
+    game.players.B = newPlayer('token-b');
+
+    // Play the game into a finished state.
+    game.players.A.ready = true;
+    game.players.B.ready = true;
+    game.players.A.rematch = true;
+    game.phase = 'over';
+    game.turn = 'B';
+    game.winner = 'A';
+    game.shotLog.A.push({ r: 1, c: 1, hit: true });
+    game.shotLog.B.push({ r: 2, c: 2, hit: false });
+    applyShot(game.players.B, ...game.players.B.ships[0].cells[0]);
+
+    resetForRematch(game);
+
+    assert.equal(game.phase, 'placing');
+    assert.equal(game.turn, 'A');
+    assert.equal(game.winner, null);
+    assert.deepEqual(game.shotLog, { A: [], B: [] });
+
+    for (const slot of ['A', 'B']) {
+      const player = game.players[slot];
+      assert.equal(player.ready, false, `${slot} should have to re-confirm`);
+      assert.equal(player.rematch, false, `${slot}'s rematch flag should be spent`);
+      assert.equal(player.shot.flat().some(Boolean), false, `${slot}'s damage should be gone`);
+      assert.equal(player.ships.length, SHIPS.length);
+      assert.equal(player.ships.every((s) => s.hits === 0 && !s.sunk), true);
+      assert.equal(player.grid.flat().filter((v) => v !== -1).length, TOTAL_SHIP_CELLS);
+    }
+
+    // Identity survives, or a rejoin after the rematch would fail.
+    assert.equal(game.players.A.playerId, 'token-a');
+    assert.equal(game.players.B.playerId, 'token-b');
+  });
+
+  it('is safe on a room that only ever had one player', () => {
+    const game = newGame('TEST');
+    game.players.A = newPlayer('token-a');
+    resetForRematch(game);
+    assert.equal(game.players.B, null);
+    assert.equal(game.phase, 'placing');
   });
 });
 
