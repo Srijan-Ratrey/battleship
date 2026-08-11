@@ -13,10 +13,10 @@ export const SHIPS = [
 
 export const TOTAL_SHIP_CELLS = SHIPS.reduce((n, s) => n + s.size, 0);
 
-// Decision A: classic rules — one shot per turn, hit or miss. Flip this to true
-// for the common "you get another shot when you hit" house rule; the turn logic
+// Decision A: a hit earns another shot; a miss ends the turn. Set this to false
+// for strict Milton Bradley rules (one shot per turn regardless). The turn logic
 // in src/index.js is the only reader.
-export const EXTRA_SHOT_ON_HIT = false;
+export const EXTRA_SHOT_ON_HIT = true;
 
 // No I/O/0/1 — room codes get read aloud and typed by hand.
 const CODE_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';

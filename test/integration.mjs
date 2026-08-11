@@ -78,7 +78,23 @@ function check(name, fn) {
 
 // ---------------------------------------------------------------------------
 
-const state = {};
+// The harness knows both layouts — each `board` message is that player's own —
+// which lets it aim at a known ship or known water and make turn order
+// deterministic. Now that a hit earns another shot, "fire anywhere and assume
+// the turn passed" is no longer a safe thing for a test to do.
+function pick(grid, wantShip, used) {
+  for (let r = 0; r < SIZE; r++) {
+    for (let c = 0; c < SIZE; c++) {
+      if ((grid[r][c] !== -1) === wantShip && !used.has(`${r},${c}`)) {
+        used.add(`${r},${c}`);
+        return [r, c];
+      }
+    }
+  }
+  throw new Error(`no unused ${wantShip ? 'ship' : 'water'} cell left`);
+}
+
+const state = { firedByA: new Set(), firedByB: new Set(), bShots: [] };
 
 check('two players join and the room moves to placing', async () => {
   state.a = await new Client('A').connect();
@@ -154,44 +170,69 @@ check('both ready starts the game with A to move', async () => {
   assert.equal(startB.yourTurn, false);
 });
 
-check('firing out of turn is refused and costs nothing', async () => {
-  state.b.send({ type: 'fire', r: 5, c: 5 });
-  const error = await state.b.waitFor('error');
-  assert.match(error.msg, /not your turn/i);
+check('a hit earns another shot, a miss ends the turn', async () => {
+  // A's move. Aim at a cell we know carries one of B's ships.
+  const [hr, hc] = pick(state.gridB, true, state.firedByA);
+  state.a.send({ type: 'fire', r: hr, c: hc });
+  const hit = await state.a.waitFor('fireResult');
+  assert.equal(hit.hit, true, 'a known ship cell should register a hit');
+  assert.equal(hit.yourTurn, true, 'a hit must keep the move');
 
-  // A still has the move.
-  state.a.send({ type: 'fire', r: 0, c: 0 });
-  const result = await state.a.waitFor('fireResult');
-  assert.equal(result.r, 0);
-  assert.equal(result.c, 0);
-  const incoming = await state.b.waitFor('incoming');
-  assert.equal(incoming.r, 0);
-  assert.equal(incoming.c, 0);
-  assert.equal(incoming.hit, result.hit);
-  state.shotsA = 1;
+  const defended = await state.b.waitFor('incoming');
+  assert.equal(defended.hit, true);
+  assert.equal(defended.yourTurn, false, 'the defender must not get the move after a hit');
+
+  // Same player fires again, this time into open water.
+  const [mr, mc] = pick(state.gridB, false, state.firedByA);
+  state.a.send({ type: 'fire', r: mr, c: mc });
+  const miss = await state.a.waitFor('fireResult');
+  assert.equal(miss.hit, false);
+  assert.equal(miss.yourTurn, false, 'a miss must end the turn');
+
+  const handover = await state.b.waitFor('incoming');
+  assert.equal(handover.yourTurn, true, 'the move passes on a miss');
+  state.shotsA = 2;
+});
+
+check('firing out of turn is refused and costs nothing', async () => {
+  // B's move now.
+  state.a.send({ type: 'fire', r: 5, c: 5 });
+  assert.match((await state.a.waitFor('error')).msg, /not your turn/i);
+
+  // B misses on purpose, so the move comes straight back to A.
+  const [r, c] = pick(state.gridA, false, state.firedByB);
+  state.b.send({ type: 'fire', r, c });
+  assert.equal((await state.b.waitFor('fireResult')).hit, false);
+
+  const incoming = await state.a.waitFor('incoming');
+  assert.equal(incoming.r, r);
+  assert.equal(incoming.c, c);
+  assert.equal(incoming.yourTurn, true);
+  state.bShots.push([r, c]);
 });
 
 check('off-board and repeat shots are refused', async () => {
-  // It is B's turn now.
-  state.b.send({ type: 'fire', r: 99, c: 0 });
-  assert.match((await state.b.waitFor('error')).msg, /off the board/i);
+  // A's move.
+  state.a.send({ type: 'fire', r: 99, c: 0 });
+  assert.match((await state.a.waitFor('error')).msg, /off the board/i);
 
-  state.b.send({ type: 'fire', r: 3, c: 3 });
-  await state.b.waitFor('fireResult');
-  await state.a.waitFor('incoming');
+  const [spent] = [...state.firedByA];
+  const [sr, sc] = spent.split(',').map(Number);
+  state.a.send({ type: 'fire', r: sr, c: sc });
+  assert.match((await state.a.waitFor('error')).msg, /already fired/i);
 
-  // Back to B after A moves.
-  state.a.send({ type: 'fire', r: 0, c: 1 });
-  await state.a.waitFor('fireResult');
+  // A misses to hand the move over; B misses to hand it back.
+  const [ar, ac] = pick(state.gridB, false, state.firedByA);
+  state.a.send({ type: 'fire', r: ar, c: ac });
+  assert.equal((await state.a.waitFor('fireResult')).hit, false);
   await state.b.waitFor('incoming');
-  state.shotsA = 2;
+  state.shotsA = 3;
 
-  state.b.send({ type: 'fire', r: 3, c: 3 });
-  assert.match((await state.b.waitFor('error')).msg, /already fired/i);
-
-  state.b.send({ type: 'fire', r: 4, c: 4 });
+  const [br, bc] = pick(state.gridA, false, state.firedByB);
+  state.b.send({ type: 'fire', r: br, c: bc });
   await state.b.waitFor('fireResult');
   await state.a.waitFor('incoming');
+  state.bShots.push([br, bc]);
 });
 
 check('a dropped player rejoins and gets its own state back', async () => {
@@ -215,13 +256,16 @@ check('a dropped player rejoins and gets its own state back', async () => {
 
   // Tracking holds exactly the shots A had fired, and nothing more.
   const marked = resync.tracking.flat().filter((v) => v !== null);
-  assert.equal(marked.length, state.shotsA, 'tracking must replay A\'s own shots');
-  assert.equal(resync.tracking[0][0] !== null, true);
-  assert.equal(resync.tracking[0][1] !== null, true);
+  assert.equal(marked.length, state.shotsA, "tracking must replay A's own shots");
+  for (const key of state.firedByA) {
+    const [r, c] = key.split(',').map(Number);
+    assert.notEqual(resync.tracking[r][c], null, `A's shot at ${key} was lost`);
+  }
 
-  // B's two shots landed on A's board, visible as A's own damage.
-  assert.equal(resync.board.shot[3][3], true);
-  assert.equal(resync.board.shot[4][4], true);
+  // B's shots landed on A's board, visible as A's own damage.
+  for (const [r, c] of state.bShots) {
+    assert.equal(resync.board.shot[r][c], true, `B's shot at ${r},${c} was lost`);
+  }
 
   await state.b.waitFor('opponent', (m) => m.present === true);
 

@@ -6,110 +6,284 @@
 <title>Battleship</title>
 <style>
   :root {
-    --bg: #0b1622;
-    --panel: #13212f;
-    --panel-2: #1b2d3f;
-    --line: #26405a;
-    --ink: #e8f1f8;
-    --dim: #8aa4bd;
-    --teal: #35c9c0;
-    --amber: #f0b429;
-    --red: #ef5b5b;
-    --water: #16293b;
+    --deep:    #061320;
+    --hull-bg: #0d1d2c;
+    --panel:   #112536;
+    --line:    #23445f;
+    --ink:     #e9f3fb;
+    --dim:     #91adc6;
+    --teal:    #3ad4c8;
+    --amber:   #f5b73d;
+    --red:     #ef4c4c;
+    --brass:   #c9a227;
+    --sea-1:   #12384f;
+    --sea-2:   #0d2a3d;
+    --steel-1: #8ea4b5;
+    --steel-2: #5d7387;
+    --steel-3: #3d5062;
   }
 
   * { box-sizing: border-box; }
 
   body {
     margin: 0;
-    padding: 1.5rem 1rem 3rem;
-    background: var(--bg);
+    padding: 1.75rem 1rem 4rem;
     color: var(--ink);
-    font: 16px/1.5 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font: 16px/1.55 ui-sans-serif, system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    background:
+      radial-gradient(1200px 600px at 15% -10%, #123047 0%, transparent 60%),
+      radial-gradient(900px 500px at 90% 10%, #0f2c40 0%, transparent 55%),
+      var(--deep);
+    min-height: 100vh;
   }
 
-  .wrap { max-width: 940px; margin: 0 auto; }
+  .wrap { max-width: 1080px; margin: 0 auto; }
 
-  header {
-    display: flex; flex-wrap: wrap; gap: .75rem 1.25rem;
-    align-items: baseline; margin-bottom: 1.25rem;
+  /* ---------- header ---------- */
+
+  header { display: flex; flex-wrap: wrap; gap: .8rem 1.4rem; align-items: center; margin-bottom: 1.4rem; }
+
+  h1 {
+    font: 800 1.5rem/1 ui-sans-serif, system-ui, sans-serif;
+    letter-spacing: .16em; text-transform: uppercase; margin: 0;
+    text-shadow: 0 2px 0 rgba(0,0,0,.5);
   }
-  h1 { font-size: 1.4rem; margin: 0; letter-spacing: .02em; }
   h1 span { color: var(--teal); }
 
-  .room-code {
-    font: 600 1.05rem/1 ui-monospace, SFMono-Regular, Menlo, monospace;
-    letter-spacing: .18em;
-    background: var(--panel-2); border: 1px solid var(--line);
-    padding: .4rem .7rem; border-radius: .4rem;
+  .code-plate {
+    display: flex; align-items: center; gap: .5rem;
+    font: 700 1rem/1 ui-monospace, SFMono-Regular, Menlo, monospace; letter-spacing: .22em;
+    color: #ffe9a8;
+    background: linear-gradient(180deg, #2a2417, #1a1710);
+    border: 1px solid #574a24; border-radius: .35rem;
+    padding: .45rem .8rem .45rem .7rem;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.12), 0 2px 6px rgba(0,0,0,.4);
   }
-  .conn { margin-left: auto; font-size: .85rem; color: var(--dim); display: flex; align-items: center; gap: .45rem; }
-  .dot { width: .55rem; height: .55rem; border-radius: 50%; background: var(--red); }
-  .dot.on { background: var(--teal); }
+  .code-plate::before {
+    content: ''; width: .5rem; height: .5rem; border-radius: 50%;
+    background: radial-gradient(circle at 35% 30%, #ffe9a8, var(--brass));
+    box-shadow: 0 0 6px rgba(201,162,39,.8);
+  }
+
+  .conn { margin-left: auto; font-size: .82rem; color: var(--dim); display: flex; align-items: center; gap: .45rem; }
+  .dot { width: .55rem; height: .55rem; border-radius: 50%; background: var(--red); box-shadow: 0 0 8px currentColor; color: var(--red); }
+  .dot.on { background: var(--teal); color: var(--teal); }
+
+  /* ---------- status ---------- */
 
   .status {
-    background: var(--panel); border: 1px solid var(--line); border-left: 3px solid var(--teal);
-    padding: .8rem 1rem; border-radius: .4rem; margin-bottom: 1rem; min-height: 3.1rem;
+    position: relative; overflow: hidden;
+    background: linear-gradient(180deg, var(--panel), #0d1e2d);
+    border: 1px solid var(--line); border-radius: .5rem;
+    padding: .85rem 1.1rem .85rem 1.3rem; margin-bottom: 1.1rem; min-height: 3.4rem;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.05), 0 6px 18px rgba(0,0,0,.35);
   }
-  .status.alert { border-left-color: var(--amber); }
-  .status.bad { border-left-color: var(--red); }
+  .status::before { content: ''; position: absolute; left: 0; top: 0; bottom: 0; width: 3px; background: var(--teal); }
+  .status.alert::before { background: var(--amber); }
+  .status.bad::before { background: var(--red); }
+  .status.hot::before { background: var(--red); box-shadow: 0 0 14px var(--red); }
   .status b { color: var(--teal); }
-  .status .sub { display: block; color: var(--dim); font-size: .85rem; margin-top: .15rem; }
+  .status.hot b { color: #ff9b8a; }
+  .status .sub { display: block; color: var(--dim); font-size: .85rem; margin-top: .1rem; }
 
-  .controls { display: flex; flex-wrap: wrap; gap: .6rem; margin-bottom: 1.25rem; }
+  /* ---------- controls ---------- */
+
+  .controls { display: flex; flex-wrap: wrap; gap: .6rem; margin-bottom: 1.4rem; }
   button {
-    font: 600 .92rem/1 inherit; color: var(--ink);
-    background: var(--panel-2); border: 1px solid var(--line);
-    padding: .65rem 1.1rem; border-radius: .4rem; cursor: pointer;
+    font: 600 .9rem/1 inherit; color: var(--ink); cursor: pointer;
+    background: linear-gradient(180deg, #1d354a, #142636);
+    border: 1px solid var(--line); border-radius: .4rem; padding: .68rem 1.15rem;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.07), 0 2px 5px rgba(0,0,0,.35);
+    transition: border-color .15s, transform .06s;
   }
   button:hover:not(:disabled) { border-color: var(--teal); }
-  button.primary { background: var(--teal); color: #06232a; border-color: var(--teal); }
-  button:disabled { opacity: .4; cursor: not-allowed; }
+  button:active:not(:disabled) { transform: translateY(1px); }
+  button.primary {
+    background: linear-gradient(180deg, #46e2d5, #21b3a7);
+    color: #04262b; border-color: #2fd0c2; text-shadow: 0 1px 0 rgba(255,255,255,.25);
+  }
+  button:disabled { opacity: .42; cursor: not-allowed; }
+
   input {
-    font: 600 .95rem/1 ui-monospace, Menlo, monospace; letter-spacing: .16em; text-transform: uppercase;
-    color: var(--ink); background: var(--panel-2); border: 1px solid var(--line);
-    padding: .6rem .7rem; border-radius: .4rem; width: 7.5rem;
+    font: 700 1rem/1 ui-monospace, Menlo, monospace; letter-spacing: .2em; text-transform: uppercase;
+    color: var(--ink); background: #0b1a27; border: 1px solid var(--line);
+    padding: .62rem .7rem; border-radius: .4rem; width: 8rem; text-align: center;
   }
+  input:focus { outline: 2px solid var(--teal); outline-offset: 1px; }
 
-  .boards { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1.5rem; }
-  .board h2 { font-size: .8rem; text-transform: uppercase; letter-spacing: .12em; color: var(--dim); margin: 0 0 .6rem; }
+  /* ---------- boards ---------- */
 
-  .grid { display: grid; grid-template-columns: 1.3rem repeat(10, 1fr); gap: 2px; }
-  .lab { font-size: .65rem; color: var(--dim); display: flex; align-items: center; justify-content: center; }
+  .boards { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 1.6rem; }
+
+  .board-case {
+    background: linear-gradient(180deg, #16293a, #0d1c29);
+    border: 1px solid var(--line); border-radius: .7rem; padding: .9rem;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.06), 0 10px 26px rgba(0,0,0,.45);
+  }
+  .board-case h2 {
+    font-size: .74rem; text-transform: uppercase; letter-spacing: .16em;
+    color: var(--dim); margin: 0 0 .7rem; display: flex; align-items: center; gap: .5rem;
+  }
+  .board-case h2::before {
+    content: ''; width: .45rem; height: .45rem; border-radius: 50%; background: var(--line);
+  }
+  .board-case.live h2::before { background: var(--teal); box-shadow: 0 0 8px var(--teal); }
+  .board-case.live { border-color: #2c6a72; }
+
+  /* Labels sit in the same grid as the cells; the ship and water layers are
+     absolutely positioned over the cell region only, using these two sizes. */
+  .grid {
+    --lab-w: 1.5rem;
+    --lab-h: 1.15rem;
+    position: relative;
+    display: grid;
+    grid-template-columns: var(--lab-w) repeat(10, 1fr);
+    gap: 0;
+  }
+  .lab {
+    font: 600 .62rem/1 ui-monospace, Menlo, monospace; color: var(--dim);
+    display: flex; align-items: center; justify-content: center; height: var(--lab-h);
+  }
+  .lab.row { height: auto; }
+
+  .layer { position: absolute; left: var(--lab-w); top: var(--lab-h); right: 0; bottom: 0; pointer-events: none; }
+  .water {
+    z-index: 0; border-radius: 3px; overflow: hidden;
+    background:
+      repeating-linear-gradient(115deg, rgba(255,255,255,.028) 0 2px, transparent 2px 9px),
+      linear-gradient(180deg, var(--sea-1), var(--sea-2));
+  }
+  .water::after {
+    content: ''; position: absolute; inset: -40%;
+    background: radial-gradient(closest-side, rgba(90,190,220,.14), transparent 70%);
+    animation: drift 14s ease-in-out infinite alternate;
+  }
+  @keyframes drift {
+    from { transform: translate(-14%, -8%) scale(1); }
+    to   { transform: translate(16%, 10%) scale(1.15); }
+  }
+  .ships { z-index: 1; }
+
   .cell {
-    aspect-ratio: 1; background: var(--water); border: 1px solid #1e364c; border-radius: 2px;
-    display: flex; align-items: center; justify-content: center; font-size: .8rem;
+    position: relative; z-index: 2;
+    aspect-ratio: 1; background: transparent;
+    border: 1px solid rgba(140, 195, 220, .10);
   }
-  .cell.ship { background: #3c556e; border-color: #4e6c8a; }
-  .cell.sunkship { background: #5a3040; border-color: #7d4358; }
-  .cell.hit  { background: var(--red); border-color: #ff8080; color: #2a0000; }
-  .cell.miss { background: #1d3245; color: var(--dim); }
   .cell.aim { cursor: crosshair; }
-  .cell.aim:hover { background: #23485f; border-color: var(--teal); }
-  .cell.last { outline: 2px solid var(--amber); outline-offset: -2px; }
+  .cell.aim:hover { background: rgba(58, 212, 200, .16); box-shadow: inset 0 0 0 1px var(--teal); }
 
-  .fleet { display: flex; flex-wrap: wrap; gap: .35rem; margin-top: .6rem; }
-  .chip { font-size: .7rem; color: var(--dim); border: 1px solid var(--line); border-radius: 1rem; padding: .12rem .55rem; }
-  .chip.sunk { color: var(--red); border-color: var(--red); text-decoration: line-through; }
+  /* Peg holes, as on the physical board — including through the hulls, which is
+     exactly where the red pegs go. */
+  .cell::before {
+    content: ''; position: absolute; left: 50%; top: 50%;
+    width: 24%; height: 24%; transform: translate(-50%, -50%); border-radius: 50%;
+    background: rgba(0, 0, 0, .30);
+    box-shadow: inset 0 1px 1.5px rgba(0,0,0,.65), 0 1px 0 rgba(255,255,255,.05);
+  }
+
+  /* Pegs — red domes for hits, ivory for misses. */
+  .cell.hit::after, .cell.miss::after {
+    content: ''; position: absolute; left: 50%; top: 50%;
+    width: 54%; height: 54%; transform: translate(-50%, -50%); border-radius: 50%;
+  }
+  .cell.hit::after {
+    background: radial-gradient(circle at 34% 26%, #ff9e8e, #e8352f 52%, #7e1010);
+    box-shadow: 0 2px 4px rgba(0,0,0,.65), 0 0 12px rgba(239,76,76,.5);
+  }
+  .cell.miss::after {
+    width: 40%; height: 40%;
+    background: radial-gradient(circle at 34% 26%, #f4f8fb, #c2d0da 55%, #6f8496);
+    box-shadow: 0 1px 3px rgba(0,0,0,.6);
+    opacity: .82;
+  }
+  .cell.last::after { animation: pop .45s cubic-bezier(.2,1.6,.4,1); }
+  @keyframes pop {
+    0%   { transform: translate(-50%, -50%) scale(0); }
+    70%  { transform: translate(-50%, -50%) scale(1.35); }
+    100% { transform: translate(-50%, -50%) scale(1); }
+  }
+
+  /* Hulls: one element per ship, spanning its cells. The transparent border
+     insets the hull so the grid lines still frame it, while the element itself
+     stays exactly aligned to the cells it occupies. */
+  .hull {
+    position: absolute;
+    border: 3px solid transparent;
+    background: linear-gradient(180deg, var(--steel-1) 0%, var(--steel-2) 46%, var(--steel-3) 100%);
+    background-clip: padding-box;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.35), inset 0 -3px 6px rgba(0,0,0,.45), 0 4px 10px rgba(0,0,0,.55);
+  }
+  .hull.h { border-radius: 46% 8px 8px 46% / 50% 10px 10px 50%; }
+  .hull.v { border-radius: 46% 46% 8px 8px / 50% 50% 10px 10px; }
+  /* Deck line */
+  .hull::before {
+    content: ''; position: absolute; inset: 26% 12%;
+    background: rgba(255,255,255,.16); border-radius: 2px;
+  }
+  .hull.v::before { inset: 12% 26%; }
+  /* Superstructure */
+  .hull::after {
+    content: ''; position: absolute; left: 50%; top: 50%;
+    width: 26%; height: 46%; transform: translate(-50%, -50%);
+    background: linear-gradient(180deg, #b8c8d5, #6d8294);
+    border-radius: 2px; box-shadow: 0 1px 2px rgba(0,0,0,.5);
+  }
+  .hull.v::after { width: 46%; height: 26%; }
+  .hull.sunk {
+    background: linear-gradient(180deg, #6b4a4a 0%, #4a2f33 50%, #2c1c20 100%);
+    filter: saturate(.55) brightness(.8);
+  }
+  .hull.ghost { opacity: .55; }
+
+  /* ---------- fleet legend ---------- */
+
+  .fleet { display: flex; flex-wrap: wrap; gap: .45rem; margin-top: .85rem; }
+  .chip {
+    display: flex; align-items: center; gap: .4rem;
+    font: 600 .68rem/1 inherit; color: var(--dim);
+    border: 1px solid var(--line); border-radius: 1rem; padding: .25rem .6rem .25rem .45rem;
+    background: rgba(255,255,255,.02);
+  }
+  .chip .silhouette {
+    display: block; height: .42rem; border-radius: .25rem;
+    background: linear-gradient(180deg, var(--steel-1), var(--steel-3));
+  }
+  .chip.sunk { color: #ff9b8a; border-color: #6e3030; background: rgba(239,76,76,.08); }
+  .chip.sunk .silhouette { background: linear-gradient(180deg, #7c5252, #3a2226); }
+  .chip.sunk .name { text-decoration: line-through; }
+
+  /* ---------- lobby ---------- */
+
+  .lobby {
+    background: linear-gradient(180deg, var(--panel), #0c1c29);
+    border: 1px solid var(--line); border-radius: .7rem; padding: 2rem;
+    box-shadow: 0 12px 30px rgba(0,0,0,.45);
+    max-width: 560px;
+  }
+  .lobby h2 { margin: 0 0 .4rem; font-size: 1.1rem; letter-spacing: .02em; }
+  .lobby p { color: var(--dim); margin: 0 0 1.4rem; font-size: .92rem; }
+  .row { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; }
+  .or { color: var(--dim); font-size: .8rem; text-transform: uppercase; letter-spacing: .1em; margin: 0 .35rem; }
 
   .hidden { display: none !important; }
-  .lobby { background: var(--panel); border: 1px solid var(--line); border-radius: .5rem; padding: 1.5rem; }
-  .lobby p { color: var(--dim); margin: 0 0 1rem; }
-  .row { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; }
-  .or { color: var(--dim); font-size: .85rem; margin: 0 .3rem; }
+
+  @media (max-width: 420px) {
+    .grid { --lab-w: 1.1rem; }
+    body { padding: 1rem .6rem 3rem; }
+  }
 </style>
 </head>
 <body>
 <div class="wrap">
   <header>
     <h1>Battle<span>ship</span></h1>
-    <span id="codeBadge" class="room-code hidden"></span>
+    <span id="codeBadge" class="code-plate hidden"></span>
     <span class="conn"><span id="dot" class="dot"></span><span id="connText">offline</span></span>
   </header>
 
-  <!-- Lobby -->
   <section id="lobby" class="lobby">
-    <p>Create a room and share the code, or join one you were given.</p>
+    <h2>Take command</h2>
+    <p>Create a room and send the code to your opponent, or join one you were given.</p>
     <div class="row">
       <button id="createBtn" class="primary">Create a room</button>
       <span class="or">or</span>
@@ -118,7 +292,6 @@
     </div>
   </section>
 
-  <!-- Game -->
   <section id="game" class="hidden">
     <div id="status" class="status"></div>
 
@@ -130,12 +303,12 @@
     </div>
 
     <div class="boards">
-      <div class="board">
+      <div class="board-case" id="ownCase">
         <h2>Your fleet</h2>
         <div id="ownGrid" class="grid"></div>
         <div id="ownFleet" class="fleet"></div>
       </div>
-      <div class="board">
+      <div class="board-case" id="enemyCase">
         <h2 id="enemyTitle">Enemy waters</h2>
         <div id="enemyGrid" class="grid"></div>
         <div id="enemyFleet" class="fleet"></div>
@@ -179,6 +352,10 @@ function resetState(code) {
     reveal: null,        // enemy fleet, only after gameOver
     lastOwn: null,
     lastEnemy: null,
+    // Set only while a hit is keeping someone's turn alive, so the banner can
+    // explain why the turn hasn't changed hands.
+    streak: null,
+    theirStreak: null,
     error: null,
   };
 }
@@ -283,6 +460,9 @@ function handle(m) {
       S.tracking[m.r][m.c] = m.hit ? 'hit' : 'miss';
       S.lastEnemy = [m.r, m.c];
       S.yourTurn = m.yourTurn;
+      // Only while we still hold the move — otherwise a hit from an earlier
+      // turn would still be claiming credit when the turn came back around.
+      S.streak = m.yourTurn ? { hit: m.hit, sunk: m.sunk, shipName: m.shipName } : null;
       if (m.sunk) S.enemySunk.push(m.shipName);
       break;
 
@@ -290,6 +470,7 @@ function handle(m) {
       S.shot[m.r][m.c] = true;
       S.lastOwn = [m.r, m.c];
       S.yourTurn = m.yourTurn;
+      S.theirStreak = m.yourTurn ? null : { hit: m.hit, sunk: m.sunk, shipName: m.shipName };
       if (m.sunk) markOwnSunk(m.shipName);
       break;
 
@@ -331,11 +512,20 @@ function markOwnSunk(name) {
 
 function buildGrid(host, onClick) {
   host.replaceChildren();
-  host.append(label(''));
-  for (const c of COLS) host.append(label(c));
+
+  // Painted under the cells; the ship layer sits between them so pegs, which
+  // live on the cells, always read on top of a hull.
+  const water = document.createElement('div');
+  water.className = 'layer water';
+  const ships = document.createElement('div');
+  ships.className = 'layer ships';
+  host.append(water, ships);
+
+  host.append(label('', 'corner'));
+  for (const c of COLS) host.append(label(c, 'col'));
 
   for (let r = 0; r < SIZE; r++) {
-    host.append(label(ROWS[r]));
+    host.append(label(ROWS[r], 'row'));
     for (let c = 0; c < SIZE; c++) {
       const cell = document.createElement('div');
       cell.className = 'cell';
@@ -347,15 +537,35 @@ function buildGrid(host, onClick) {
   }
 }
 
-function label(text) {
+function label(text, kind) {
   const el = document.createElement('div');
-  el.className = 'lab';
+  el.className = `lab ${kind}`;
   el.textContent = text;
   return el;
 }
 
-function cellsOf(host) {
-  return host.querySelectorAll('.cell');
+const cellsOf = (host) => host.querySelectorAll('.cell');
+
+// One element per ship, spanning its cells — so a Carrier reads as a single
+// five-cell hull rather than five disconnected squares.
+function drawShips(host, ships, ghost) {
+  const layer = host.querySelector('.ships');
+  layer.replaceChildren();
+  if (!ships) return;
+
+  for (const ship of ships) {
+    const rows = ship.cells.map(([r]) => r);
+    const cols = ship.cells.map(([, c]) => c);
+    const horizontal = new Set(rows).size === 1;
+
+    const el = document.createElement('div');
+    el.className = `hull ${horizontal ? 'h' : 'v'}${ship.sunk ? ' sunk' : ''}${ghost ? ' ghost' : ''}`;
+    el.style.left = `${Math.min(...cols) * 10}%`;
+    el.style.top = `${Math.min(...rows) * 10}%`;
+    el.style.width = `${(horizontal ? ship.size : 1) * 10}%`;
+    el.style.height = `${(horizontal ? 1 : ship.size) * 10}%`;
+    layer.append(el);
+  }
 }
 
 function render() {
@@ -394,9 +604,19 @@ function renderStatus() {
     sub = S.ready
       ? 'Waiting for your opponent to lock in.'
       : (S.opponent.ready ? 'Your opponent is ready and waiting.' : 'Randomize until you like the layout.');
+  } else if (S.phase === 'playing' && S.yourTurn) {
+    if (S.streak?.hit) el.classList.add('hot');
+    main = S.streak?.hit ? '<b>Hit — fire again.</b>' : '<b>Your turn.</b> Pick a target.';
+    sub = S.streak?.sunk
+      ? `You sank their ${S.streak.shipName}. A hit earns another shot.`
+      : 'Click a cell in enemy waters.';
   } else if (S.phase === 'playing') {
-    main = S.yourTurn ? '<b>Your turn.</b> Pick a target.' : 'Their turn…';
-    sub = S.yourTurn ? 'Click a cell in enemy waters.' : 'Waiting for their shot.';
+    main = 'Their turn…';
+    sub = S.theirStreak?.sunk
+      ? `They sank your ${S.theirStreak.shipName} and fire again.`
+      : S.theirStreak?.hit
+        ? 'They hit, so they fire again.'
+        : 'Waiting for their shot.';
   }
 
   el.innerHTML = main + (sub ? `<span class="sub">${sub}</span>` : '');
@@ -412,26 +632,31 @@ function renderControls() {
 }
 
 function renderOwn() {
-  const cells = cellsOf($('ownGrid'));
-  cells.forEach((cell) => {
+  $('ownCase').classList.toggle('live', S.phase === 'playing' && !S.yourTurn && !S.over);
+  drawShips($('ownGrid'), S.ships, false);
+
+  cellsOf($('ownGrid')).forEach((cell) => {
     const r = +cell.dataset.r;
     const c = +cell.dataset.c;
     const shipIndex = S.grid ? S.grid[r][c] : -1;
-    const ship = shipIndex >= 0 ? S.ships[shipIndex] : null;
 
     cell.className = 'cell';
-    if (ship) cell.classList.add(ship.sunk ? 'sunkship' : 'ship');
-    if (S.shot[r][c]) cell.classList.add(ship ? 'hit' : 'miss');
+    // Kept as a semantic marker even though the hull layer does the drawing.
+    if (shipIndex >= 0) cell.classList.add('ship');
+    if (S.shot[r][c]) cell.classList.add(shipIndex >= 0 ? 'hit' : 'miss');
     if (S.lastOwn && S.lastOwn[0] === r && S.lastOwn[1] === c) cell.classList.add('last');
-    cell.textContent = S.shot[r][c] ? (ship ? '✷' : '·') : '';
   });
 
-  $('ownFleet').replaceChildren(...S.ships.map((s) => chip(s.name, s.sunk)));
+  $('ownFleet').replaceChildren(...S.ships.map((s) => chip(s.name, s.size, s.sunk)));
 }
 
 function renderEnemy() {
   const canFire = S.phase === 'playing' && S.yourTurn && !S.over;
+  $('enemyCase').classList.toggle('live', canFire);
   $('enemyTitle').textContent = S.over ? 'Enemy fleet (revealed)' : 'Enemy waters';
+
+  // Hulls appear here only once the server has revealed them at game over.
+  drawShips($('enemyGrid'), S.reveal ? S.reveal.ships : null, true);
 
   cellsOf($('enemyGrid')).forEach((cell) => {
     const r = +cell.dataset.r;
@@ -439,30 +664,35 @@ function renderEnemy() {
     const mark = S.tracking[r][c];
 
     cell.className = 'cell';
-    // Enemy hulls appear only once the server has revealed them.
-    if (S.reveal) {
-      const shipIndex = S.reveal.grid[r][c];
-      if (shipIndex >= 0 && !mark) cell.classList.add('ship');
-    }
     if (mark === 'hit') cell.classList.add('hit');
     if (mark === 'miss') cell.classList.add('miss');
     if (canFire && !mark) cell.classList.add('aim');
     if (S.lastEnemy && S.lastEnemy[0] === r && S.lastEnemy[1] === c) cell.classList.add('last');
-    cell.textContent = mark === 'hit' ? '✷' : mark === 'miss' ? '·' : '';
   });
 
   const enemyShips = S.reveal ? S.reveal.ships : null;
   $('enemyFleet').replaceChildren(
     ...(enemyShips
-      ? enemyShips.map((s) => chip(s.name, s.sunk))
-      : S.enemySunk.map((name) => chip(name, true))),
+      ? enemyShips.map((s) => chip(s.name, s.size, s.sunk))
+      : S.enemySunk.map((name) => chip(name, null, true))),
   );
 }
 
-function chip(name, sunk) {
+function chip(name, size, sunk) {
   const el = document.createElement('span');
   el.className = 'chip' + (sunk ? ' sunk' : '');
-  el.textContent = name;
+
+  if (size) {
+    const bar = document.createElement('span');
+    bar.className = 'silhouette';
+    bar.style.width = `${size * 0.3}rem`;
+    el.append(bar);
+  }
+
+  const text = document.createElement('span');
+  text.className = 'name';
+  text.textContent = name;
+  el.append(text);
   return el;
 }
 

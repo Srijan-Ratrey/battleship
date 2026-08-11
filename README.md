@@ -50,12 +50,18 @@ the whole ruleset under plain Node.
 ```bash
 npm test                       # 13 rules tests — placement fuzz, hit/sunk/win, bounds
 npm run dev                    # in one terminal
-npm run test:e2e               # in another: 10 checks over real sockets
+npm run test:e2e               # in another: 11 checks over real sockets
 ```
 
-The end-to-end suite plays a full match and asserts the thing that matters: it
-scans **every frame** player A received before `gameOver` and fails if any of
-them contains B's grid or ship coordinates.
+The end-to-end suite plays a full match and asserts the thing that matters. It
+scans **every frame** player A received before `gameOver` and fails if B's grid
+appears in any of them, if a fleet rides on anything but `board`/`resync`, or if
+a fleet disagrees with the grid sent alongside it — which would catch someone
+else's ships list even behind an innocent-looking grid.
+
+(It deliberately does *not* compare individual ships by their coordinates: both
+players sometimes place a ship on the same squares by chance, and that is A
+seeing A's own Destroyer, not a leak.)
 
 ## Protocol
 
@@ -88,8 +94,10 @@ leak the ship's size.
 
 ## Rules and behaviour
 
-- One shot per turn, hit or miss (classic). `EXTRA_SHOT_ON_HIT` in `src/game.js`
-  flips this.
+- **A hit earns another shot; a miss ends the turn.** `EXTRA_SHOT_ON_HIT` in
+  [src/game.js](src/game.js) flips this back to strict one-shot-per-turn rules.
+  The turn logic in `onFire` is the only reader, and the banner tells the player
+  why the turn hasn't changed hands.
 - Random placement with unlimited rerolls until you click Ready; Ready locks the
   fleet.
 - Rejoin: your `playerId` lives in `sessionStorage`, so a reload or a dropped
