@@ -264,21 +264,27 @@ check('a full match plays out and declares a winner', async () => {
   }
 
   assert.ok(gameOver, 'the match never ended');
-  assert.equal(gameOver.winner, 'A', 'A moves first and sweeps, so A should win');
+  // Both sides sweep in the same order, so who gets there first comes down to
+  // whose fleet sits earlier in row-major order — a genuine coin flip.
+  assert.ok(['A', 'B'].includes(gameOver.winner), `odd winner: ${gameOver.winner}`);
   assert.ok(gameOver.boards.A && gameOver.boards.B, 'both fleets revealed at the end');
+
+  const loser = gameOver.winner === 'A' ? 'B' : 'A';
   assert.equal(
-    gameOver.boards.B.ships.every((s) => s.sunk),
+    gameOver.boards[loser].ships.every((s) => s.sunk),
     true,
     'the loser should have no ships left',
   );
-  state.gameOver = gameOver;
+  assert.equal(
+    gameOver.boards[gameOver.winner].ships.every((s) => s.sunk),
+    false,
+    'the winner should still have something afloat',
+  );
+  state.winner = gameOver.winner;
 });
 
 check('the enemy fleet never crossed the wire before game over', async () => {
-  const enemySignatures = [
-    JSON.stringify(state.gridB),
-    ...state.shipsB.map((ship) => JSON.stringify(ship.cells)),
-  ];
+  const enemyGrid = JSON.stringify(state.gridB);
 
   // Every frame A received across both of its connections, up to gameOver.
   const allFrames = [...state.framesBeforeDrop, ...state.a.frames];
@@ -290,25 +296,39 @@ check('the enemy fleet never crossed the wire before game over', async () => {
   assert.ok(framesBeforeEnd.length > 10, 'expected a real conversation to inspect');
 
   for (const frame of framesBeforeEnd) {
-    for (const signature of enemySignatures) {
-      assert.equal(frame.includes(signature), false, "B's fleet leaked to A");
-    }
-
     const message = JSON.parse(frame);
-    const grid = message.grid ?? message.board?.grid;
-    if (grid) {
-      // A fleet may only ever ride on the two messages that carry A's own board.
-      assert.ok(['board', 'resync'].includes(message.type), `a fleet rode on "${message.type}"`);
-      assert.notDeepEqual(grid, state.gridB, "A was handed B's layout");
-    }
+
+    // The full 10x10 layout is the leak vector that matters, and it cannot
+    // collide by chance. (Comparing individual ships by their cells would trip
+    // whenever both players happen to place a ship on the same squares — that
+    // is A seeing A's own Destroyer, not a leak.)
+    assert.equal(frame.includes(enemyGrid), false, `B's grid leaked on "${message.type}"`);
     assert.equal(message.boards ?? null, null, 'boards may only appear in gameOver');
+
+    const grid = message.grid ?? message.board?.grid;
+    const ships = message.ships ?? message.board?.ships;
+    if (!grid && !ships) continue;
+
+    // A fleet may only ride on the two messages that carry A's own board.
+    assert.ok(['board', 'resync'].includes(message.type), `a fleet rode on "${message.type}"`);
+    assert.notDeepEqual(grid, state.gridB, "A was handed B's layout");
+
+    // And the fleet must be internally coherent: every ship's cells must agree
+    // with the grid shipped alongside it. Handing A someone else's ships list
+    // would break this even if the grid looked innocent.
+    ships.forEach((ship, index) => {
+      for (const [r, c] of ship.cells) {
+        assert.equal(grid[r][c], index, `${ship.name} at ${r},${c} disagrees with its own grid`);
+      }
+    });
   }
 
-  // And the count of revealed information is exactly what was earned.
-  const hitsA = allFrames
+  // And the winner learned exactly what they earned: 17 hits, no more.
+  const winnerFrames = state.winner === 'A' ? allFrames : state.b.frames;
+  const hits = winnerFrames
     .map((f) => JSON.parse(f))
     .filter((m) => m.type === 'fireResult' && m.hit).length;
-  assert.equal(hitsA, TOTAL_SHIP_CELLS, `A should have landed exactly ${TOTAL_SHIP_CELLS} hits`);
+  assert.equal(hits, TOTAL_SHIP_CELLS, `winner should have landed exactly ${TOTAL_SHIP_CELLS} hits`);
 });
 
 // ---------------------------------------------------------------------------
