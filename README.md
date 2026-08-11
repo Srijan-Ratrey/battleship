@@ -43,7 +43,8 @@ Workers **Free** plan.
 ```
 src/game.js          pure rules: randomFleet, applyShot, trackingFrom — unit-tested
 src/index.js         Worker router + the Room Durable Object
-public/index.html    single-file frontend (no framework, no build step)
+public/index.html    the whole frontend (no framework, no build step)
+public/favicon.svg   tab icon — a warship silhouette, plus a PNG fallback
 test/game.test.mjs   rules tests, plain Node
 test/integration.mjs end-to-end test over real WebSockets (needs `npm run dev`)
 wrangler.jsonc       Worker name, ROOM binding, SQLite DO, assets

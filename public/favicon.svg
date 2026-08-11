@@ -1,0 +1,18 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 32 32" role="img" aria-label="Battleship">
+  <rect width="32" height="32" rx="7" fill="#0d1d2c"/>
+
+  <!-- Superstructure, mast and turrets. Kept chunky: anything thinner than
+       about 1.5 units disappears once the icon is drawn at 16px. -->
+  <g fill="#e4eef6">
+    <rect x="13.4" y="4.2" width="2" height="6" rx=".9"/>
+    <rect x="11.2" y="8.4" width="6.6" height="9.4" rx="1.2"/>
+    <rect x="4.6" y="13.2" width="4.6" height="4.6" rx="1.1"/>
+    <rect x="19.4" y="13.2" width="4.6" height="4.6" rx="1.1"/>
+    <!-- forward gun, hinged at the turret roof so it reads as one piece -->
+    <rect x="21.6" y="13" width="6.6" height="1.8" rx=".9" transform="rotate(-24 21.6 13)"/>
+  </g>
+
+  <!-- Hull: square stern on the left, raked bow on the right. The asymmetry is
+       what makes it read as a warship rather than a tub. -->
+  <path d="M2.2 17.8h27.6l-6.4 8.2a2 2 0 0 1-1.6.8H7.4a2.6 2.6 0 0 1-2.3-1.4L2.2 17.8Z" fill="#3ad4c8"/>
+</svg>
