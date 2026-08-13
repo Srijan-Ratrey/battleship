@@ -2,10 +2,14 @@ import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
 import {
+  BOT_LEVELS,
   SIZE,
   SHIPS,
   TOTAL_SHIP_CELLS,
   applyShot,
+  botShot,
+  newBot,
+  resolveSunk,
   emptyShotGrid,
   fleetFromPlacements,
   inBounds,
@@ -278,6 +282,143 @@ describe('resetForRematch', () => {
     resetForRematch(game);
     assert.equal(game.players.B, null);
     assert.equal(game.phase, 'placing');
+  });
+});
+
+describe('the computer opponent', () => {
+  const blank = () => Array.from({ length: SIZE }, () => Array.from({ length: SIZE }, () => null));
+
+  // Plays one bot to completion against a random fleet and returns its score.
+  // Note what it is given: a tracking grid it builds from its own results, and
+  // nothing else. There is no way to hand it the fleet even by accident.
+  function playSolo(level) {
+    const defender = newPlayer('target');
+    const tracking = blank();
+    let pending = [];
+    let shots = 0;
+
+    for (let guard = 0; guard <= SIZE * SIZE; guard++) {
+      const shot = botShot(tracking, pending, level);
+      assert.ok(shot, 'the bot ran out of cells before finishing');
+
+      const [r, c] = shot;
+      const result = applyShot(defender, r, c);
+      assert.equal(result.ok, true, `the bot fired an illegal shot at ${r},${c}`);
+      shots += 1;
+      tracking[r][c] = result.hit ? 'hit' : 'miss';
+
+      if (result.hit) {
+        pending.push([r, c]);
+        if (result.sunk) {
+          pending = resolveSunk(pending, r, c, SHIPS.find((s) => s.name === result.shipName).size);
+        }
+      }
+      if (result.win) return shots;
+    }
+    throw new Error('the bot never finished the game');
+  }
+
+  const mean = (xs) => xs.reduce((a, b) => a + b, 0) / xs.length;
+
+  it('never fires at a cell it has already fired at', () => {
+    for (const level of BOT_LEVELS) {
+      const tracking = blank();
+      for (let i = 0; i < 90; i++) {
+        const [r, c] = botShot(tracking, [], level);
+        assert.equal(tracking[r][c], null, `${level} fired at ${r},${c} twice`);
+        tracking[r][c] = 'miss';
+      }
+    }
+  });
+
+  it('gives up only when the board is exhausted', () => {
+    const tracking = blank().map((row) => row.map(() => 'miss'));
+    assert.equal(botShot(tracking, [], 'hard'), null);
+  });
+
+  it('hard works around a lone hit', () => {
+    const tracking = blank();
+    tracking[4][4] = 'hit';
+    for (let i = 0; i < 40; i++) {
+      const [r, c] = botShot(tracking, [[4, 4]], 'hard');
+      assert.equal(Math.abs(r - 4) + Math.abs(c - 4), 1, `${r},${c} does not touch the hit`);
+    }
+  });
+
+  it('hard follows the line once two hits reveal the axis', () => {
+    const tracking = blank();
+    tracking[4][4] = 'hit';
+    tracking[4][5] = 'hit';
+    for (let i = 0; i < 40; i++) {
+      const [r, c] = botShot(tracking, [[4, 4], [4, 5]], 'hard');
+      assert.equal(r, 4, 'it should stay on the ship\'s row');
+      assert.ok(c === 3 || c === 6, `expected an end of the run, got ${r},${c}`);
+    }
+  });
+
+  it('hard searches on parity when it has nothing to chase', () => {
+    const tracking = blank();
+    for (let i = 0; i < 200; i++) {
+      const [r, c] = botShot(tracking, [], 'hard');
+      assert.equal((r + c) % 2, 0, `${r},${c} is off the search pattern`);
+    }
+  });
+
+  it('easy ignores a hit rather than chasing it', () => {
+    const tracking = blank();
+    tracking[4][4] = 'hit';
+    const shots = Array.from({ length: 200 }, () => botShot(tracking, [[4, 4]], 'easy'));
+    const touching = shots.filter(([r, c]) => Math.abs(r - 4) + Math.abs(c - 4) === 1).length;
+    // Four of ~99 open cells touch the hit, so a handful is chance; a lot is chasing.
+    assert.ok(touching < 40, `easy looks like it is hunting (${touching}/200 adjacent)`);
+  });
+
+  it('resolveSunk forgets the wreck and keeps other live hits', () => {
+    const pending = [[0, 0], [0, 1], [5, 5]];
+    const left = resolveSunk(pending, 0, 1, 2);
+    assert.deepEqual(left, [[5, 5]], 'the sunk pair should go, the loose hit should stay');
+  });
+
+  it('both levels always finish, and hard is markedly sharper than easy', () => {
+    const easy = Array.from({ length: 50 }, () => playSolo('easy'));
+    const hard = Array.from({ length: 50 }, () => playSolo('hard'));
+
+    assert.ok(mean(hard) < mean(easy) - 20, `hard ${mean(hard)} vs easy ${mean(easy)}`);
+    assert.ok(mean(hard) < 60, `hard averaged ${mean(hard)} shots`);
+    assert.ok(Math.max(...easy, ...hard) <= SIZE * SIZE);
+  });
+
+  it('cannot see the fleet it is shooting at', () => {
+    // Sinking everything takes 17 hits, so a bot that knew the layout would
+    // finish in 17 shots. Even the luckiest honest game lands nowhere near that,
+    // which makes a low score the signature of peeking.
+    const best = Math.min(...Array.from({ length: 80 }, () => playSolo('hard')));
+    assert.ok(best >= 20, `hard finished in ${best} shots — it knew where the ships were`);
+  });
+
+  it('newBot is present, already ready, and keeps the id it was given', () => {
+    const bot = newBot('hard', 'token-bot');
+    assert.equal(bot.playerId, 'token-bot');
+    assert.equal(bot.present, true);
+    assert.equal(bot.ready, true, 'a bot never presses Ready');
+    assert.equal(bot.bot.level, 'hard');
+    assert.deepEqual(bot.bot.pending, []);
+    assert.equal(bot.grid.flat().filter((v) => v !== -1).length, TOTAL_SHIP_CELLS);
+  });
+
+  it('a rematch leaves the bot ready and forgets what it was chasing', () => {
+    const game = newGame('TEST');
+    game.players.A = newPlayer('human');
+    game.players.B = newBot('hard', 'token-bot');
+    game.players.B.bot.pending = [[1, 1]];
+    game.phase = 'over';
+
+    resetForRematch(game);
+
+    assert.equal(game.players.A.ready, false, 'the human re-confirms');
+    assert.equal(game.players.B.ready, true, 'the bot does not');
+    assert.deepEqual(game.players.B.bot.pending, [], 'old hits must not carry over');
+    assert.equal(game.players.B.bot.level, 'hard');
   });
 });
 

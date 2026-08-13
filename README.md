@@ -41,7 +41,7 @@ Workers **Free** plan.
 ## Layout
 
 ```
-src/game.js          pure rules: randomFleet, applyShot, trackingFrom — unit-tested
+src/game.js          pure rules + the AI: randomFleet, applyShot, botShot — unit-tested
 src/index.js         Worker router + the Room Durable Object
 public/index.html    the whole frontend (no framework, no build step)
 public/favicon.svg   tab icon — a warship silhouette, plus a PNG fallback
@@ -57,9 +57,9 @@ the whole ruleset under plain Node.
 ## Tests
 
 ```bash
-npm test                       # 21 rules tests — placement fuzz, validation, hit/sunk/win
+npm test                       # 32 rules tests — placement fuzz, validation, hit/sunk/win, the AI
 npm run dev                    # in one terminal
-npm run test:e2e               # in another: 15 checks over real sockets
+npm run test:e2e               # in another: 16 checks over real sockets
 ```
 
 The end-to-end suite plays a full match and asserts the thing that matters. It
@@ -74,8 +74,8 @@ seeing A's own Destroyer, not a leak.)
 
 ## Protocol
 
-Client → server: `hello {playerId?}`, `randomize`, `place {ships}`, `ready`,
-`fire {r,c}`, `rematch`. The literal string `ping` is auto-answered with `pong`
+Client → server: `hello {playerId?}`, `addBot {level}`, `randomize`,
+`place {ships}`, `ready`, `fire {r,c}`, `rematch`. The literal string `ping` is auto-answered with `pong`
 by the runtime without waking the room.
 
 `place` carries only `[{name, r, c, horizontal}]` — never a grid. The server
@@ -90,7 +90,7 @@ Server → client:
 | `welcome` | `{slot, playerId, phase}` |
 | `full` | `{resumable}` — slots currently nobody is sitting in |
 | `board` | `{grid, ships}` — yours only |
-| `opponent` | `{joined, present, ready, phase}` |
+| `opponent` | `{joined, present, ready, bot, phase}` — `bot` is the level, or null |
 | `youReady` | `{ready}` |
 | `start` | `{yourTurn}` |
 | `fireResult` | `{r, c, hit, sunk, shipName, win, yourTurn}` |
@@ -113,6 +113,12 @@ leak the ship's size.
 
 ## Rules and behaviour
 
+- **Play the computer.** The lobby offers Easy and Hard. Easy fires at random
+  (~95 shots to finish). Hard hunts on alternating squares — no ship is shorter
+  than two, so every ship must sit on one — and works along a ship once it lands
+  a hit (~52 shots). It runs **on the server**, as an ordinary player in the
+  second seat that happens to have no socket, and takes each shot on a Durable
+  Object alarm so it reads as an opponent thinking rather than a burst.
 - **A hit earns another shot; a miss ends the turn.** `EXTRA_SHOT_ON_HIT` in
   [src/game.js](src/game.js) flips this back to strict one-shot-per-turn rules.
   The turn logic in `onFire` is the only reader, and the banner tells the player
@@ -144,6 +150,15 @@ leak the ship's size.
 ![The end-of-game modal reading VICTORY over a blurred board, with shots, hits and accuracy, and buttons to play again or view the boards](docs/victory.png)
 
 ## Where the security boundary is
+
+The computer opponent is subject to the same rule as everyone else. `botShot` in
+[src/game.js](src/game.js) is a pure function over the bot's **own** tracking
+grid — rebuilt with `trackingFrom(shotLog)`, exactly what the player opposite
+sees — and is never passed a fleet. There is no parameter through which the
+opponent's layout could arrive, which is why the guarantee is structural rather
+than a promise. Sinking everything takes 17 hits, so a bot that peeked would
+finish in 17 shots; the suite plays 80 games and fails if it ever finishes in
+under 20.
 
 `onFire` in [src/index.js](src/index.js) re-checks phase, turn, bounds, and
 whether the cell was already fired on **every** shot. The client's opinion about

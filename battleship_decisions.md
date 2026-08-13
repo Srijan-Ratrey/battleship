@@ -4,8 +4,8 @@ Originally the calls made *before* building. Now also the record of how they
 landed, what got reversed once the game was playable, and the decisions that only
 surfaced once code met reality.
 
-**Status:** live at <https://battleship.sr5.workers.dev> (version `b9712419`).
-21 unit tests, 15 end-to-end socket checks, 29 browser checks. Free plan.
+**Status:** live at <https://battleship.sr5.workers.dev> (version `adc9cb97`).
+32 unit tests, 16 end-to-end socket checks, 29 browser checks. Free plan.
 
 ---
 
@@ -114,6 +114,33 @@ placement editor, explosion effects and a modal.
 - Storage access is wrapped in a try/catch — some privacy modes throw rather than
   no-op, and losing rejoin beats losing the page.
 
+### The computer opponent
+
+- **It runs on the server, not in the browser.** A client-side bot would have to
+  hold its own fleet, and the player could simply read it — the same reason
+  decision 3 exists. So a bot is an ordinary player in the second seat that
+  happens to have no socket: `sendTo` finds nothing and no-ops, `markAbsent`
+  never fires for it, presence reports it there.
+- **It sees exactly what a player sees.** `botShot` is a pure function over the
+  bot's own tracking grid, rebuilt from its shot log with the same
+  `trackingFrom` a rejoin uses. It is never handed a fleet, so it *cannot* peek
+  — and the suite proves it: 17 hits sink everything, so anything under 20 shots
+  would mean it knew, and 80 simulated games are checked against that.
+- **Two levels, measured not guessed.** Easy fires at random (~95 shots). Hard
+  hunts on parity — no ship is shorter than two, so every ship must touch a
+  square where `(r + c)` is even — and works along a ship once it hits (~52).
+  Numbers from 300 simulated games each.
+- **Shots are paced by a Durable Object alarm, one per shot**, rather than a
+  blocking sleep inside the message handler. A sleep would have lost the rest of
+  the bot's turn if the object were evicted mid-sequence, stranding the game with
+  nobody able to move; an alarm is durable, and one shot per alarm is also what
+  makes it read as an opponent thinking.
+- **It never has to press Ready or agree to a rematch**, so a solo game starts
+  and restarts on one click. That is why `resetForRematch` puts bots back to
+  ready rather than clearing it for everyone.
+- Its `playerId` is a real random token like anyone's. A guessable one would let
+  someone `hello` into the bot's seat and read the fleet they are playing against.
+
 ### Anti-cheat
 
 - **Manual placement never accepts a grid.** The client sends only
@@ -154,6 +181,8 @@ placement editor, explosion effects and a modal.
 | `d8c8e1c` | Warship tab icon, drawn for 16px and checked at that size. |
 | `28aeed1` | Kill list survives a rejoin; e2e failures now name the socket close. |
 | `1ad76e4` | A closed tab can take its seat back. |
+| `60d79cf` | This document brought back in line with what was built. |
+| `HEAD` | Computer opponent, Easy and Hard. |
 
 ---
 
@@ -195,4 +224,12 @@ understood.
 - **`enemySunk` on rejoin was a real bug**, found in a final review and fixed:
   `resync` carried no record of which enemy ships you'd sunk, so the fleet legend
   came back blank after a reconnect. Names only, of ships already announced.
-- Not built: sound, spectators, mobile drag polish, an AI opponent.
+- **The e2e flake is explained.** The diagnostics added earlier caught it:
+  `socket closed (1006, unclean) … NOT closed by the test` — a transport-level
+  drop between this machine and Cloudflare, measured at roughly one handshake in
+  twelve. The real client already reconnects with backoff; the harness did not,
+  so one refused connection failed every later check. It now retries the connect
+  the same way, and reports an unexplained drop as a transport problem rather
+  than a game failure. A browser on the same connection plays a full game
+  against production without trouble.
+- Not built: sound, spectators, mobile drag polish.

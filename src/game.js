@@ -120,6 +120,21 @@ export function newPlayer(playerId) {
   };
 }
 
+export const BOT_LEVELS = ['easy', 'hard'];
+
+// A bot is an ordinary player that happens to have no socket: always present,
+// already ready, and carrying the little memory its brain needs. It still gets a
+// real random playerId — a guessable one would let anyone `hello` their way into
+// the bot's seat and read the fleet they are playing against.
+export function newBot(level, playerId) {
+  return {
+    ...newPlayer(playerId),
+    present: true,
+    ready: true,
+    bot: { level, pending: [] },
+  };
+}
+
 // Rematch in the same room: fresh fleets and a cleared history, but the same
 // two players in the same slots. Mutates and returns `game`.
 export function resetForRematch(game) {
@@ -131,8 +146,10 @@ export function resetForRematch(game) {
     player.grid = grid;
     player.ships = ships;
     player.shot = emptyShotGrid();
-    player.ready = false;
+    // A bot never presses Ready, so leaving it unready would hang the rematch.
+    player.ready = Boolean(player.bot);
     player.rematch = false;
+    if (player.bot) player.bot.pending = [];
   }
 
   game.phase = 'placing';
@@ -191,4 +208,109 @@ export function trackingFrom(log) {
   const grid = filledGrid(null);
   for (const { r, c, hit } of log) grid[r][c] = hit ? 'hit' : 'miss';
   return grid;
+}
+
+// ---------------------------------------------------------------------------
+// The computer opponent.
+//
+// Everything below decides from `tracking` — the bot's OWN hit/miss history,
+// exactly what a player sitting there would see — and is never handed a fleet.
+// That is the anti-cheat guarantee, made structural: there is no parameter here
+// through which the opponent's layout could arrive.
+// ---------------------------------------------------------------------------
+
+const CARDINALS = [[-1, 0], [1, 0], [0, -1], [0, 1]];
+const AXES = [[0, 1], [1, 0]];
+
+const key = (r, c) => `${r},${c}`;
+const pickOne = (cells) => cells[Math.floor(Math.random() * cells.length)];
+
+function unfired(tracking) {
+  const open = [];
+  for (let r = 0; r < SIZE; r++) {
+    for (let c = 0; c < SIZE; c++) {
+      if (tracking[r][c] === null) open.push([r, c]);
+    }
+  }
+  return open;
+}
+
+// Where to shoot next given hits on ships that haven't sunk yet.
+function targetCandidates(tracking, pending) {
+  const live = new Set(pending.map(([r, c]) => key(r, c)));
+
+  // Two adjacent hits reveal the ship's axis, so the rest of it lies off one end
+  // or the other. That beats poking at all four neighbours.
+  const alongTheLine = [];
+  for (const [r, c] of pending) {
+    for (const [dr, dc] of AXES) {
+      if (!live.has(key(r + dr, c + dc))) continue;
+
+      for (const sign of [1, -1]) {
+        let rr = r;
+        let cc = c;
+        while (live.has(key(rr + dr * sign, cc + dc * sign))) {
+          rr += dr * sign;
+          cc += dc * sign;
+        }
+        const nr = rr + dr * sign;
+        const nc = cc + dc * sign;
+        if (inBounds(nr, nc) && tracking[nr][nc] === null) alongTheLine.push([nr, nc]);
+      }
+    }
+  }
+  if (alongTheLine.length) return alongTheLine;
+
+  // A lone hit — the ship runs in one of four directions, so try around it.
+  const around = [];
+  for (const [r, c] of pending) {
+    for (const [dr, dc] of CARDINALS) {
+      const nr = r + dr;
+      const nc = c + dc;
+      if (inBounds(nr, nc) && tracking[nr][nc] === null) around.push([nr, nc]);
+    }
+  }
+  return around;
+}
+
+export function botShot(tracking, pending = [], level = 'hard') {
+  const open = unfired(tracking);
+  if (!open.length) return null;
+
+  if (level !== 'hard') return pickOne(open); // easy: fire anywhere untouched
+
+  const targets = targetCandidates(tracking, pending);
+  if (targets.length) return pickOne(targets);
+
+  // Hunting. No ship is shorter than two cells, so every ship must cover at
+  // least one square where (r + c) is even — searching only those halves the
+  // work without any chance of stepping over a ship.
+  const parity = open.filter(([r, c]) => (r + c) % 2 === 0);
+  return pickOne(parity.length ? parity : open);
+}
+
+// A ship went down at [r, c] (already pushed onto `pending`). Drop the cells it
+// occupied so the bot stops working a wreck. Biased towards leaving a cell
+// behind rather than removing one too many: a stale hit costs a few shots, but
+// dropping a live one abandons a ship that is still afloat.
+export function resolveSunk(pending, r, c, size) {
+  const live = new Set(pending.map(([pr, pc]) => key(pr, pc)));
+  let run = [[r, c]];
+
+  for (const [dr, dc] of AXES) {
+    const line = [[r, c]];
+    for (const sign of [1, -1]) {
+      let rr = r;
+      let cc = c;
+      while (line.length < size && live.has(key(rr + dr * sign, cc + dc * sign))) {
+        rr += dr * sign;
+        cc += dc * sign;
+        line.push([rr, cc]);
+      }
+    }
+    if (line.length > run.length) run = line;
+  }
+
+  const gone = new Set(run.map(([rr, cc]) => key(rr, cc)));
+  return pending.filter(([pr, pc]) => !gone.has(key(pr, pc)));
 }

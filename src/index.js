@@ -1,17 +1,25 @@
 import { DurableObject } from 'cloudflare:workers';
 
 import {
+  BOT_LEVELS,
   EXTRA_SHOT_ON_HIT,
+  SHIPS,
   applyShot,
+  botShot,
   fleetFromPlacements,
   inBounds,
+  newBot,
   newGame,
   newPlayer,
   opponentOf,
   randomFleet,
   resetForRematch,
+  resolveSunk,
   trackingFrom,
 } from './game.js';
+
+// How long the computer "thinks" between shots.
+const BOT_THINKING_MS = 700;
 
 const ROOM_ROUTE = /^\/api\/room\/([A-Za-z0-9]{1,12})$/;
 
@@ -99,6 +107,8 @@ export class Room extends DurableObject {
         return this.onRandomize(ws, game);
       case 'place':
         return this.onPlace(ws, game, message);
+      case 'addBot':
+        return this.onAddBot(ws, game, message);
       case 'ready':
         return this.onReady(ws, game);
       case 'fire':
@@ -163,6 +173,7 @@ export class Room extends DurableObject {
       });
       send(ws, this.resyncFor(game, rejoinSlot));
       this.sendTo(opponentOf(rejoinSlot), opponentUpdate(game, opponentOf(rejoinSlot)));
+      await this.ensureBotMoving(game);
       return;
     }
 
@@ -251,6 +262,7 @@ export class Room extends DurableObject {
     if (bothReady) {
       this.sendTo('A', { type: 'start', yourTurn: true });
       this.sendTo('B', { type: 'start', yourTurn: false });
+      if (isBot(game, game.turn)) await this.scheduleBotTurn();
     } else {
       this.sendTo(opponentOf(slot), opponentUpdate(game, opponentOf(slot)));
     }
@@ -275,17 +287,8 @@ export class Room extends DurableObject {
     const target = game.players[foe];
     if (!target) return send(ws, { type: 'error', msg: 'There is no opponent yet.' });
 
-    const result = applyShot(target, r, c);
+    const result = applyTurnShot(game, slot, r, c);
     if (!result.ok) return send(ws, { type: 'error', msg: result.error });
-
-    game.shotLog[slot].push({ r, c, hit: result.hit });
-
-    if (result.win) {
-      game.phase = 'over';
-      game.winner = slot;
-    } else if (!(result.hit && EXTRA_SHOT_ON_HIT)) {
-      game.turn = foe;
-    }
     await this.ctx.storage.put('game', game);
 
     const live = game.phase === 'playing';
@@ -311,6 +314,94 @@ export class Room extends DurableObject {
     });
 
     if (result.win) this.sendBoth({ type: 'gameOver', winner: slot, boards: revealBoth(game) });
+    else if (isBot(game, game.turn)) await this.scheduleBotTurn();
+  }
+
+  // -- the computer opponent ------------------------------------------------
+
+  async onAddBot(ws, game, message) {
+    const slot = ws.deserializeAttachment()?.slot;
+    if (!slot || !game.players[slot]) {
+      return send(ws, { type: 'error', msg: 'Join the room first.' });
+    }
+    if (!BOT_LEVELS.includes(message.level)) {
+      return send(ws, { type: 'error', msg: 'Pick an easy or hard opponent.' });
+    }
+
+    const seat = opponentOf(slot);
+    if (game.players[seat]) {
+      return send(ws, { type: 'error', msg: 'That seat is already taken.' });
+    }
+
+    game.players[seat] = newBot(message.level, crypto.randomUUID());
+    if (game.phase === 'lobby') game.phase = 'placing';
+    await this.ctx.storage.put('game', game);
+
+    send(ws, opponentUpdate(game, slot));
+  }
+
+  // If the computer had the move when everything went quiet — this object was
+  // evicted mid-turn, say — get it going again rather than stall the game.
+  async ensureBotMoving(game) {
+    if (game.phase !== 'playing' || !isBot(game, game.turn)) return;
+    if (await this.ctx.storage.getAlarm()) return;
+    await this.scheduleBotTurn(200);
+  }
+
+  // One shot per alarm, re-arming while the bot still holds the move. Paced so
+  // it reads as an opponent thinking rather than a burst of results, and durable
+  // — a blocking sleep would lose the rest of the turn if this object were
+  // evicted mid-sequence, stranding the game with nobody able to move.
+  async scheduleBotTurn(delayMs = BOT_THINKING_MS) {
+    await this.ctx.storage.setAlarm(Date.now() + delayMs);
+  }
+
+  async alarm() {
+    if (await this.takeBotShot()) await this.scheduleBotTurn();
+  }
+
+  // Fires exactly one shot. Returns whether the bot still has the move.
+  async takeBotShot() {
+    const game = await this.ctx.storage.get('game');
+    const slot = game && botSlot(game);
+    if (!slot || game.phase !== 'playing' || game.turn !== slot) return false;
+
+    const foe = opponentOf(slot);
+    if (!game.players[foe]) return false;
+
+    const { bot } = game.players[slot];
+    // Its own hit/miss history and nothing else — the same view the player on
+    // the other side of the table has.
+    const shot = botShot(trackingFrom(game.shotLog[slot]), bot.pending, bot.level);
+    if (!shot) return false;
+
+    const [r, c] = shot;
+    const result = applyTurnShot(game, slot, r, c);
+    if (!result.ok) return false;
+
+    if (result.hit) {
+      bot.pending.push([r, c]);
+      if (result.sunk) {
+        const { size } = SHIPS.find((s) => s.name === result.shipName);
+        bot.pending = resolveSunk(bot.pending, r, c, size);
+      }
+    }
+    await this.ctx.storage.put('game', game);
+
+    const live = game.phase === 'playing';
+    this.sendTo(foe, {
+      type: 'incoming',
+      r,
+      c,
+      hit: result.hit,
+      sunk: result.sunk,
+      shipName: result.shipName,
+      lose: result.win,
+      yourTurn: live && game.turn === foe,
+    });
+
+    if (result.win) this.sendBoth({ type: 'gameOver', winner: slot, boards: revealBoth(game) });
+    return live && game.turn === slot;
   }
 
   // Both players must ask before the room resets, so one side cannot wipe a
@@ -323,6 +414,8 @@ export class Room extends DurableObject {
 
     me.rematch = true;
     const foe = opponentOf(slot);
+    // Nobody has to wait on the computer to agree to another game.
+    if (isBot(game, foe)) game.players[foe].rematch = true;
 
     if (!(game.players.A?.rematch && game.players.B?.rematch)) {
       await this.ctx.storage.put('game', game);
@@ -390,7 +483,32 @@ function closeQuietly(ws, code, reason) {
 
 function presenceOf(game, slot) {
   const player = game.players[slot];
-  return { joined: Boolean(player), present: Boolean(player?.present), ready: Boolean(player?.ready) };
+  return {
+    joined: Boolean(player),
+    present: Boolean(player?.present),
+    ready: Boolean(player?.ready),
+    bot: player?.bot?.level ?? null,
+  };
+}
+
+const botSlot = (game) => ['A', 'B'].find((s) => game.players[s]?.bot) ?? null;
+const isBot = (game, slot) => Boolean(slot && game.players[slot]?.bot);
+
+// Shared by a player's `fire` and the computer's turn, so the two can never
+// drift apart on the turn rule. Mutates `game`.
+function applyTurnShot(game, slot, r, c) {
+  const foe = opponentOf(slot);
+  const result = applyShot(game.players[foe], r, c);
+  if (!result.ok) return result;
+
+  game.shotLog[slot].push({ r, c, hit: result.hit });
+  if (result.win) {
+    game.phase = 'over';
+    game.winner = slot;
+  } else if (!(result.hit && EXTRA_SHOT_ON_HIT)) {
+    game.turn = foe;
+  }
+  return result;
 }
 
 // Addressed TO `slot`, describing the OTHER player plus the room phase.

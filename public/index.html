@@ -415,6 +415,10 @@
   .row { display: flex; flex-wrap: wrap; gap: .6rem; align-items: center; }
   .or { color: var(--dim); font-size: .8rem; text-transform: uppercase; letter-spacing: .1em; margin: 0 .35rem; }
 
+  .solo { margin-top: 1.6rem; padding-top: 1.4rem; border-top: 1px solid var(--line); }
+  .solo h3 { margin: 0 0 .9rem; font-size: .74rem; text-transform: uppercase; letter-spacing: .14em; color: var(--dim); }
+  .hint { font-size: .78rem; color: var(--dim); flex: 1 1 14rem; }
+
   .hidden { display: none !important; }
 
   @media (max-width: 420px) {
@@ -439,6 +443,15 @@
       <span class="or">or</span>
       <input id="codeInput" maxlength="4" placeholder="CODE" autocomplete="off" spellcheck="false">
       <button id="joinBtn">Join</button>
+    </div>
+
+    <div class="solo">
+      <h3>No opponent? Play the computer.</h3>
+      <div class="row">
+        <button id="easyBtn">Easy</button>
+        <button id="hardBtn">Hard</button>
+        <span class="hint">Easy fires at random. Hard hunts, and works along a ship once it finds one.</span>
+      </div>
     </div>
   </section>
 
@@ -515,7 +528,7 @@ function resetState(code) {
     shot: blank(false),  // where the enemy has fired on us
     tracking: blank(null),
     enemySunk: [],
-    opponent: { joined: false, present: false, ready: false },
+    opponent: { joined: false, present: false, ready: false, bot: null },
     over: false,
     winner: null,
     reveal: null,        // enemy fleet, only after gameOver
@@ -539,6 +552,7 @@ let retry = 0;
 let keepalive = null;
 let leaving = false;
 let resumeToken = null;
+let pendingBot = null;
 
 // Per-TAB, not per-browser. localStorage is shared across tabs on one origin,
 // so a second tab would read the first player's token, and the server would
@@ -640,6 +654,11 @@ function handle(m) {
       resumeToken = null;
       identity.set(S.code, m.playerId);
       seats.remember(S.code, m.slot, m.playerId);
+      // Chosen from the lobby: fill the other seat now that we hold one.
+      if (pendingBot) {
+        send({ type: 'addBot', level: pendingBot });
+        pendingBot = null;
+      }
       break;
 
     case 'full':
@@ -656,7 +675,7 @@ function handle(m) {
       break;
 
     case 'opponent':
-      S.opponent = { joined: m.joined, present: m.present, ready: m.ready };
+      S.opponent = { joined: m.joined, present: m.present, ready: m.ready, bot: m.bot ?? null };
       S.phase = m.phase;
       break;
 
@@ -1002,6 +1021,8 @@ function renderControls() {
   // Closing the modal shouldn't be a dead end.
   $('resultBtn').classList.toggle('hidden', !S.over);
   $('resumeBtn').classList.toggle('hidden', !S.resumable?.length);
+  // Nobody can join a room whose second seat is the computer.
+  $('shareBtn').classList.toggle('hidden', Boolean(S.opponent.bot));
 }
 
 // --- impact effects --------------------------------------------------------
@@ -1101,7 +1122,11 @@ function renderOwn() {
 function renderEnemy() {
   const canFire = S.phase === 'playing' && S.yourTurn && !S.over;
   $('enemyCase').classList.toggle('live', canFire);
-  $('enemyTitle').textContent = S.over ? 'Enemy fleet (revealed)' : 'Enemy waters';
+  $('enemyTitle').textContent = S.over
+    ? 'Enemy fleet (revealed)'
+    : S.opponent.bot
+      ? `Computer — ${S.opponent.bot}`
+      : 'Enemy waters';
 
   // Hulls appear here only once the server has revealed them at game over.
   drawShips($('enemyGrid'), S.reveal ? S.reveal.ships : null, true);
@@ -1170,6 +1195,15 @@ function fire(r, c) {
 }
 
 $('createBtn').addEventListener('click', () => enterRoom(randomCode()));
+
+// Playing the computer is an ordinary room that we immediately fill the other
+// seat of — the server does the rest.
+const playComputer = (level) => {
+  pendingBot = level;
+  enterRoom(randomCode());
+};
+$('easyBtn').addEventListener('click', () => playComputer('easy'));
+$('hardBtn').addEventListener('click', () => playComputer('hard'));
 
 $('joinBtn').addEventListener('click', () => {
   const code = $('codeInput').value.trim().toUpperCase();
