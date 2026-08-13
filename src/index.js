@@ -338,6 +338,7 @@ export class Room extends DurableObject {
 
   resyncFor(game, slot) {
     const me = game.players[slot];
+    const foe = game.players[opponentOf(slot)];
     const over = game.phase === 'over';
 
     return {
@@ -350,6 +351,10 @@ export class Room extends DurableObject {
       board: { grid: me.grid, ships: me.ships, shot: me.shot },
       // Rebuilt from your own shots — nothing here you didn't earn by firing.
       tracking: trackingFrom(game.shotLog[slot]),
+      // Names only, of ships you have already sunk. You were told each one at
+      // the time it went down, so replaying the list reveals nothing new — and
+      // without it a rejoin silently loses your kill list.
+      enemySunk: foe ? foe.ships.filter((s) => s.sunk).map((s) => s.name) : [],
       opponent: presenceOf(game, opponentOf(slot)),
       over,
       winner: game.winner,

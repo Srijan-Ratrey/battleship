@@ -662,7 +662,9 @@ function handle(m) {
       // A rematch replays the whole world through this same message, so every
       // trace of the finished game has to be cleared here, not just merged.
       S.reveal = m.boards ? m.boards[S.slot === 'A' ? 'B' : 'A'] : null;
-      S.enemySunk = S.reveal ? S.reveal.ships.filter((s) => s.sunk).map((s) => s.name) : [];
+      S.enemySunk = S.reveal
+        ? S.reveal.ships.filter((s) => s.sunk).map((s) => s.name)
+        : (m.enemySunk ?? []);
       S.streak = null;
       S.theirStreak = null;
       S.lastOwn = null;

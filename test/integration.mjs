@@ -25,6 +25,11 @@ class Client {
     this.label = label;
     this.received = [];
     this.frames = [];
+    // A socket that died and one that is merely slow look identical from
+    // waitFor's side. Recording the close lets a timeout say which it was.
+    this.closed = null;
+    this.closedByTest = false;
+    this.errored = false;
   }
 
   async connect() {
@@ -33,17 +38,43 @@ class Client {
       this.frames.push(event.data);
       this.received.push(JSON.parse(event.data));
     });
+    this.ws.addEventListener('error', () => { this.errored = true; });
+    this.ws.addEventListener('close', (event) => {
+      this.closed = {
+        code: event.code,
+        reason: event.reason || '',
+        clean: event.wasClean,
+        afterFrames: this.frames.length,
+      };
+    });
     await new Promise((resolve, reject) => {
-      this.ws.addEventListener('open', resolve, { once: true });
-      this.ws.addEventListener('error', () => reject(new Error(`${this.label}: connect failed`)), {
-        once: true,
-      });
+      // Something that accepts the TCP connection but never completes the
+      // upgrade — a stale process on the port, say — would otherwise hang the
+      // whole suite with no output at all.
+      const timer = setTimeout(
+        () => reject(new Error(`${this.label}: no WebSocket handshake from ${BASE} within 10s`)),
+        10000,
+      );
+      this.ws.addEventListener('open', () => { clearTimeout(timer); resolve(); }, { once: true });
+      this.ws.addEventListener('error', () => {
+        clearTimeout(timer);
+        reject(new Error(`${this.label}: connect failed (${BASE})`));
+      }, { once: true });
     });
     return this;
   }
 
   send(message) {
     this.ws.send(JSON.stringify(message));
+  }
+
+  // Why a wait might have gone nowhere — the bit a bare timeout never told us.
+  diagnosis() {
+    if (!this.closed) return this.errored ? 'socket open but an error fired' : 'socket still open';
+    const { code, reason, clean, afterFrames } = this.closed;
+    return `socket closed (${code}${reason ? ` "${reason}"` : ''}, ${clean ? 'clean' : 'unclean'}) `
+      + `after ${afterFrames} frame${afterFrames === 1 ? '' : 's'} — `
+      + `${this.closedByTest ? 'closed by the test' : 'NOT closed by the test'}`;
   }
 
   // `predicate` matters more than it looks: several `opponent` updates queue up
@@ -61,7 +92,8 @@ class Client {
       if (index !== -1) return this.received.splice(index, 1)[0];
       if (Date.now() > deadline) {
         throw new Error(
-          `${this.label}: timed out waiting for "${types}"; saw [${this.received.map((m) => m.type)}]`,
+          `${this.label}: timed out waiting for "${types}"; ${this.diagnosis()}; `
+          + `saw [${this.received.map((m) => m.type)}]`,
         );
       }
       await sleep(20);
@@ -69,6 +101,7 @@ class Client {
   }
 
   close() {
+    this.closedByTest = true;
     this.ws.close();
   }
 }
@@ -271,12 +304,39 @@ check('off-board and repeat shots are refused', async () => {
   state.bShots.push([br, bc]);
 });
 
+check('sinking a ship names it and still keeps the move', async () => {
+  // A's move. The Destroyer is the cheapest ship to finish, and every hit
+  // keeps the turn, so this needs no handover.
+  const destroyer = state.shipsB.find((s) => s.name === 'Destroyer');
+  let sinking = null;
+
+  for (const [r, c] of destroyer.cells) {
+    if (state.firedByA.has(`${r},${c}`)) continue; // an earlier check may have taken one
+    state.firedByA.add(`${r},${c}`);
+    state.a.send({ type: 'fire', r, c });
+
+    const result = await state.a.waitFor('fireResult');
+    assert.equal(result.hit, true, 'a known Destroyer cell should hit');
+    state.shotsA += 1;
+    if (result.sunk) sinking = result;
+    await state.b.waitFor('incoming');
+  }
+
+  assert.ok(sinking, 'the Destroyer should have gone down');
+  assert.equal(sinking.shipName, 'Destroyer', 'a sinking is named');
+  assert.equal(sinking.yourTurn, true, 'a sinking hit still earns another shot');
+  state.sunkByA = ['Destroyer'];
+});
+
 check('a dropped player rejoins and gets its own state back', async () => {
   // Keep the pre-drop transcript; the leak check below inspects both halves.
   state.framesBeforeDrop = state.a.frames.slice();
   state.a.close();
 
-  await state.b.waitFor('opponent', (m) => m.present === false);
+  // A dropped socket has to be noticed by the runtime and relayed to the other
+  // player. That is instant against `wrangler dev` but can lag over the open
+  // internet, so this one wait gets a longer leash than the default.
+  await state.b.waitFor('opponent', (m) => m.present === false, 20000);
 
   const rejoined = await new Client('A2').connect();
   rejoined.send({ type: 'hello', playerId: state.idA });
@@ -302,6 +362,10 @@ check('a dropped player rejoins and gets its own state back', async () => {
   for (const [r, c] of state.bShots) {
     assert.equal(resync.board.shot[r][c], true, `B's shot at ${r},${c} was lost`);
   }
+
+  // Kills A already earned must survive the drop, or the fleet legend comes
+  // back blank even though the tracking grid still shows the hits.
+  assert.deepEqual(resync.enemySunk, state.sunkByA, "A's kill list was lost");
 
   await state.b.waitFor('opponent', (m) => m.present === true);
 

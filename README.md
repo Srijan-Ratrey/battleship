@@ -59,7 +59,7 @@ the whole ruleset under plain Node.
 ```bash
 npm test                       # 21 rules tests — placement fuzz, validation, hit/sunk/win
 npm run dev                    # in one terminal
-npm run test:e2e               # in another: 13 checks over real sockets
+npm run test:e2e               # in another: 14 checks over real sockets
 ```
 
 The end-to-end suite plays a full match and asserts the thing that matters. It
@@ -95,7 +95,7 @@ Server → client:
 | `start` | `{yourTurn}` |
 | `fireResult` | `{r, c, hit, sunk, shipName, win, yourTurn}` |
 | `incoming` | `{r, c, hit, sunk, shipName, lose, yourTurn}` |
-| `resync` | `{phase, slot, ready, yourTurn, board, tracking, opponent, over, winner, boards}` |
+| `resync` | `{phase, slot, ready, yourTurn, board, tracking, enemySunk, opponent, over, winner, boards}` |
 | `gameOver` | `{winner, boards}` — the only message carrying both fleets |
 | `rematchPending` | — your request is in, waiting on the other player |
 | `rematchOffer` | — the other player wants a rematch |
@@ -125,8 +125,6 @@ leak the ship's size.
   side alone cannot wipe a finished board out from under the other. The rematch
   keeps the same room, slots and identities, and deals fresh fleets.
 - Hits explode, misses splash, and taking a hit shakes your board.
-
-![The end-of-game modal reading VICTORY over a blurred board, with shots, hits and accuracy, and buttons to play again or view the boards](docs/victory.png)
 - Rejoin: your `playerId` lives in `sessionStorage`, so a reload or a dropped
   socket puts you back in your slot with your board, your tracking grid, and the
   correct turn. It is **per tab** on purpose — `localStorage` is shared across
@@ -134,6 +132,8 @@ leak the ship's size.
   would hand it the same slot.
 - Leaving a room abandons that slot. Rooms have no timeout; they hibernate and
   evict naturally. Start a new room to play again.
+
+![The end-of-game modal reading VICTORY over a blurred board, with shots, hits and accuracy, and buttons to play again or view the boards](docs/victory.png)
 
 ## Where the security boundary is
 
