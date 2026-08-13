@@ -59,7 +59,7 @@ the whole ruleset under plain Node.
 ```bash
 npm test                       # 21 rules tests — placement fuzz, validation, hit/sunk/win
 npm run dev                    # in one terminal
-npm run test:e2e               # in another: 14 checks over real sockets
+npm run test:e2e               # in another: 15 checks over real sockets
 ```
 
 The end-to-end suite plays a full match and asserts the thing that matters. It
@@ -88,7 +88,7 @@ Server → client:
 | Type | Payload |
 |---|---|
 | `welcome` | `{slot, playerId, phase}` |
-| `full` | — |
+| `full` | `{resumable}` — slots currently nobody is sitting in |
 | `board` | `{grid, ships}` — yours only |
 | `opponent` | `{joined, present, ready, phase}` |
 | `youReady` | `{ready}` |
@@ -125,11 +125,19 @@ leak the ship's size.
   side alone cannot wipe a finished board out from under the other. The rematch
   keeps the same room, slots and identities, and deals fresh fleets.
 - Hits explode, misses splash, and taking a hit shakes your board.
-- Rejoin: your `playerId` lives in `sessionStorage`, so a reload or a dropped
-  socket puts you back in your slot with your board, your tracking grid, and the
-  correct turn. It is **per tab** on purpose — `localStorage` is shared across
-  tabs, so a second tab would present the first player's token and the server
-  would hand it the same slot.
+- Rejoin: your `playerId` lives in `sessionStorage`, so a reload, a dropped
+  socket, or reopening the closed tab puts you back in your slot with your board,
+  your tracking grid, and the correct turn. It is **per tab** on purpose —
+  `localStorage` is shared across tabs, so a second tab would present the first
+  player's token and the server would hand it the same slot, and two tabs could
+  never be two players.
+- **Resume your seat:** because that token is per-tab, opening the link in a
+  *fresh* tab joins cold and the room answers `full`. So the browser also keeps a
+  longer-lived record of the seats it has held, `full` names the seats nobody is
+  sitting in, and you get a **Resume your seat** button. It only appears for a
+  seat that is both empty *and* one this browser holds the token for; the server
+  still verifies the token, so knowing a seat is free buys you nothing without
+  it.
 - Leaving a room abandons that slot. Rooms have no timeout; they hibernate and
   evict naturally. Start a new room to play again.
 

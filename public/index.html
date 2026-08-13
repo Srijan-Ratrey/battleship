@@ -448,6 +448,7 @@
     <div class="controls">
       <button id="randomBtn">Randomize fleet</button>
       <button id="readyBtn" class="primary">Ready</button>
+      <button id="resumeBtn" class="primary">Resume your seat</button>
       <button id="resultBtn" class="primary">Play again</button>
       <button id="shareBtn">Copy invite link</button>
       <button id="leaveBtn">Leave</button>
@@ -526,6 +527,7 @@ function resetState(code) {
     theirStreak: null,
     rematchAsked: false,
     rematchOffered: false,
+    resumable: [],
     error: null,
   };
 }
@@ -536,6 +538,7 @@ let ws = null;
 let retry = 0;
 let keepalive = null;
 let leaving = false;
+let resumeToken = null;
 
 // Per-TAB, not per-browser. localStorage is shared across tabs on one origin,
 // so a second tab would read the first player's token, and the server would
@@ -544,10 +547,40 @@ let leaving = false;
 // reloads and dropped sockets that rejoin exists for.
 function idKey(code) { return `battleship:${code}`; }
 const identity = {
-  get: (code) => sessionStorage.getItem(idKey(code)),
-  set: (code, id) => sessionStorage.setItem(idKey(code), id),
-  clear: (code) => sessionStorage.removeItem(idKey(code)),
+  get: (code) => safely(() => sessionStorage.getItem(idKey(code)), null),
+  set: (code, id) => safely(() => sessionStorage.setItem(idKey(code), id)),
+  clear: (code) => safely(() => sessionStorage.removeItem(idKey(code))),
 };
+
+// A second, longer-lived record of the seats this BROWSER has held in a room.
+// sessionStorage above stays authoritative for the tab you are in — a new tab
+// still joins as a new player, so two tabs remain two players. This is only
+// consulted when the room turns you away as full, to offer your seat back after
+// the tab it was opened in is gone.
+const seats = {
+  key: (code) => `battleship:seats:${code}`,
+  all: (code) => safely(() => JSON.parse(localStorage.getItem(seats.key(code)) ?? '[]'), []),
+  remember(code, slot, id) {
+    const kept = seats.all(code).filter((s) => s.slot !== slot);
+    kept.push({ slot, id });
+    safely(() => localStorage.setItem(seats.key(code), JSON.stringify(kept)));
+  },
+  tokenFor: (code, slot) => seats.all(code).find((s) => s.slot === slot)?.id ?? null,
+  forget(code, slot) {
+    const kept = seats.all(code).filter((s) => s.slot !== slot);
+    safely(() => localStorage.setItem(seats.key(code), JSON.stringify(kept)));
+  },
+};
+
+// Storage throws rather than no-ops in some privacy modes; losing rejoin is a
+// far better outcome than losing the whole page.
+function safely(fn, fallback) {
+  try {
+    return fn();
+  } catch {
+    return fallback;
+  }
+}
 
 function connect() {
   const scheme = location.protocol === 'https:' ? 'wss' : 'ws';
@@ -556,7 +589,9 @@ function connect() {
   ws.addEventListener('open', () => {
     retry = 0;
     setConn(true);
-    const saved = identity.get(S.code);
+    // resumeToken is set only by "Resume your seat", where this tab has no
+    // session identity of its own to offer.
+    const saved = resumeToken ?? identity.get(S.code);
     ws.send(JSON.stringify(saved ? { type: 'hello', playerId: saved } : { type: 'hello' }));
     // The room auto-responds to this without waking, so an idle game keeps its
     // sockets alive through proxies for free.
@@ -582,7 +617,9 @@ function connect() {
 
 function setConn(on) {
   $('dot').classList.toggle('on', on);
-  $('connText').textContent = on ? 'connected' : 'reconnecting…';
+  // `leaving` means we were turned away or left on purpose — no retry is
+  // running, so promising one would be a lie.
+  $('connText').textContent = on ? 'connected' : leaving ? 'disconnected' : 'reconnecting…';
 }
 
 function send(message) {
@@ -599,10 +636,16 @@ function handle(m) {
       S.slot = m.slot;
       S.playerId = m.playerId;
       S.phase = m.phase;
+      S.resumable = [];
+      resumeToken = null;
       identity.set(S.code, m.playerId);
+      seats.remember(S.code, m.slot, m.playerId);
       break;
 
     case 'full':
+      // Only offer seats that are empty AND that this browser holds a token
+      // for — anything else and there is nothing we could prove.
+      S.resumable = (m.resumable ?? []).filter((slot) => seats.tokenFor(S.code, slot));
       S.error = 'That room already has two players.';
       leaving = true;
       break;
@@ -910,6 +953,9 @@ function renderStatus() {
   if (S.error) {
     el.classList.add('bad');
     main = S.error;
+    if (S.resumable?.length) {
+      sub = `Your seat (player ${S.resumable[0]}) is still open — take it back below.`;
+    }
   } else if (S.over) {
     const won = S.winner === S.slot;
     main = won ? '<b>You win.</b> Every enemy ship is on the bottom.' : 'You lose. Your fleet is gone.';
@@ -955,6 +1001,7 @@ function renderControls() {
   $('readyBtn').textContent = S.ready ? 'Ready ✓' : 'Ready';
   // Closing the modal shouldn't be a dead end.
   $('resultBtn').classList.toggle('hidden', !S.over);
+  $('resumeBtn').classList.toggle('hidden', !S.resumable?.length);
 }
 
 // --- impact effects --------------------------------------------------------
@@ -1142,6 +1189,21 @@ $('againBtn').addEventListener('click', () => {
 $('closeBtn').addEventListener('click', closeModal);
 $('resultBtn').addEventListener('click', openModal);
 
+// Reclaim a seat this browser holds the token for, after the tab it was opened
+// in is gone. The server still checks the token, so this proves who we are.
+$('resumeBtn').addEventListener('click', () => {
+  const slot = S.resumable[0];
+  const token = seats.tokenFor(S.code, slot);
+  if (!token) return;
+
+  resumeToken = token;
+  S.error = null;
+  S.resumable = [];
+  leaving = false;
+  render();
+  connect();
+});
+
 $('shareBtn').addEventListener('click', async () => {
   const link = `${location.origin}/#${S.code}`;
   try {
@@ -1156,8 +1218,10 @@ $('shareBtn').addEventListener('click', async () => {
 
 $('leaveBtn').addEventListener('click', () => {
   leaving = true;
-  // Drop the token too, or the reload would just walk straight back in.
+  // Drop both records: the reload would otherwise walk straight back in, and
+  // keeping the seat would leave us offering to resume a game you just quit.
   identity.clear(S.code);
+  if (S.slot) seats.forget(S.code, S.slot);
   if (ws) ws.close();
   location.hash = '';
   location.reload();

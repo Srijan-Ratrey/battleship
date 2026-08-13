@@ -165,10 +165,12 @@ check('two players join and the room moves to placing', async () => {
   assert.equal(update.phase, 'placing');
 });
 
-check('a third player is rejected as full', async () => {
+check('a third player is rejected as full, with no seat to resume', async () => {
   const c = await new Client('C').connect();
   c.send({ type: 'hello' });
-  await c.waitFor('full');
+  const full = await c.waitFor('full');
+  // Both players are sitting here, so there is nothing for a stranger to take.
+  assert.deepEqual(full.resumable, [], 'an occupied room offers no seats');
   c.close();
 });
 
@@ -370,6 +372,38 @@ check('a dropped player rejoins and gets its own state back', async () => {
   await state.b.waitFor('opponent', (m) => m.present === true);
 
   state.a = rejoined;
+});
+
+check('a closed tab can reclaim its seat from a fresh connection', async () => {
+  // This is the case a plain rejoin cannot cover: the tab is gone, so the new
+  // connection has no session identity and joins cold.
+  state.framesBeforeDrop = [...state.framesBeforeDrop, ...state.a.frames];
+  state.a.close();
+  await state.b.waitFor('opponent', (m) => m.present === false, 20000);
+
+  const stranger = await new Client('COLD').connect();
+  stranger.send({ type: 'hello' });
+  const full = await stranger.waitFor('full');
+  assert.deepEqual(full.resumable, ['A'], "A's empty seat should be offered");
+
+  // Knowing the seat is empty is not enough — you still need its token.
+  const impostor = await new Client('IMPOSTOR').connect();
+  impostor.send({ type: 'hello', playerId: 'not-a-real-token' });
+  assert.deepEqual((await impostor.waitFor('full')).resumable, ['A'], 'a bad token buys nothing');
+
+  // With the real token, the seat comes back with its state intact.
+  const returning = await new Client('A3').connect();
+  returning.send({ type: 'hello', playerId: state.idA });
+  assert.equal((await returning.waitFor('welcome')).slot, 'A');
+
+  const resync = await returning.waitFor('resync');
+  assert.equal(resync.phase, 'playing');
+  assert.deepEqual(resync.board.grid, state.gridA, 'the fleet survived the tab closing');
+  assert.deepEqual(resync.enemySunk, state.sunkByA);
+  assert.equal(resync.tracking.flat().filter((v) => v !== null).length, state.shotsA);
+
+  await state.b.waitFor('opponent', (m) => m.present === true, 20000);
+  state.a = returning;
 });
 
 check('a full match plays out and declares a winner', async () => {

@@ -172,7 +172,11 @@ export class Room extends DurableObject {
 
     const slot = !players.A ? 'A' : !players.B ? 'B' : null;
     if (!slot) {
-      send(ws, { type: 'full' });
+      // Name the seats nobody is currently sitting in, so someone whose tab was
+      // closed can offer to take theirs back. This only says which seats are
+      // empty — actually resuming one still requires that seat's token, which
+      // is checked above and never leaves the machine that was issued it.
+      send(ws, { type: 'full', resumable: ['A', 'B'].filter((s) => !players[s].present) });
       return closeQuietly(ws, 4001, 'room full');
     }
 
