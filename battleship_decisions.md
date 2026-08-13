@@ -1,60 +1,198 @@
 # Battleship — Decisions
 
-Everything you've locked in, plus the open calls still to make before/while building.
+Originally the calls made *before* building. Now also the record of how they
+landed, what got reversed once the game was playable, and the decisions that only
+surfaced once code met reality.
+
+**Status:** live at <https://battleship.sr5.workers.dev> (version `b9712419`).
+21 unit tests, 15 end-to-end socket checks, 29 browser checks. Free plan.
 
 ---
 
 ## Locked
 
-| # | Decision | Choice | Consequence |
+| # | Decision | Choice | Held up? |
 |---|---|---|---|
-| 1 | **Transport** | WebSocket | Persistent connection, server pushes turns to both players. |
-| 2 | **Server model** | Cloudflare Workers + Durable Objects | One room = one Durable Object. State persists between connections → rejoin is nearly free. |
-| 3 | **Authority** | Server-authoritative | The Durable Object is the *only* thing that knows ship positions. Clients never receive the enemy board until game over. This is the anti-cheat foundation and is non-negotiable for a hidden-state game. |
-| 4 | **Storage** | SQLite-backed DO (`this.ctx.storage` KV API) | Required on the free plan anyway. Game state stored as one JSON blob per room. |
-| 5 | **Placement** | Random + reroll now; drag-and-drop as v2 | Ship the game end-to-end fast, add nicer placement once networking is proven. |
-| 6 | **Ruleset** | Classic | One shot per turn, told hit/miss/sunk, you track the enemy grid yourself. |
-| 7 | **Reconnection** | Allow rejoin | Server keeps room state on disconnect; player reconnects with saved `playerId` and re-syncs. |
-| 8 | **Hosting cost** | Free | Workers Free plan: 100k requests/day, 13k GB-s/day, 5 GB storage. A full match is a few hundred messages. Effectively unlimited for this. |
-| 9 | **Deploy shape** | Single Worker serves both | Frontend via Workers static assets + API on `/api/*`, same origin. One `wrangler deploy`, no CORS, no separate Pages step. |
+| 1 | **Transport** | WebSocket | Yes. |
+| 2 | **Server model** | Cloudflare Workers + Durable Objects | Yes. One room = one DO; rejoin came nearly free, as predicted. |
+| 3 | **Authority** | Server-authoritative | Yes, and it stayed non-negotiable — see the rule at the bottom. |
+| 4 | **Storage** | SQLite-backed DO, one JSON blob per room | Yes. Re-read from `ctx.storage` on *every* message, never cached in a field. |
+| 5 | **Placement** | Random + reroll now, drag-and-drop as v2 | **Superseded** — v2 shipped. Drag to move, click to rotate, Randomize still there. |
+| 6 | **Ruleset** | Classic: one shot per turn | **Reversed** — a hit now earns another shot. See A. |
+| 7 | **Reconnection** | Allow rejoin | Yes, and then extended twice (see *Identity* below). |
+| 8 | **Hosting cost** | Free | Yes. Never came close to a limit. |
+| 9 | **Deploy shape** | Single Worker serves page + `/api/*` | Yes. One `wrangler deploy`, no CORS. |
 
 ---
 
-## Still open — decide before or during build
+## The seven open calls — how they landed
 
-### A. Turn after a hit
-Classic Milton Bradley = **one shot per turn regardless of hit or miss.** Many digital versions give you **another shot when you hit.** The second is more fun and more common online.
-→ *Recommendation:* one shot per turn for v1 (simplest, matches "classic"), flag it as a one-line change. Revisit after playing.
+### A. Turn after a hit → **reversed**
+Shipped as classic one-shot-per-turn, exactly as recommended, behind a single
+constant. Then changed on request: **a hit earns another shot, a miss ends the
+turn.** `EXTRA_SHOT_ON_HIT` in `src/game.js` still flips it back; the turn logic
+in `onFire` is its only reader.
 
-### B. Room code — who generates it?
-Options: server generates a random 4–5 char code on "create," or players share any string they agree on.
-→ *Recommendation:* server generates a short random code (e.g. `K7QF`). The code *is* the Durable Object name, so it must be unique-ish; 4 uppercase letters = 450k combos, collisions negligible at your scale.
+The recommendation to "flag it as a one-line change" paid off — the server change
+*was* one line. The cost was elsewhere: two tests had quietly assumed strict
+alternation ("fire anywhere, assume the turn passed"), and the UI had to explain
+why the turn hadn't changed hands, or it just looks broken.
 
-### C. What counts as "ready"?
-Both players must confirm placement before firing begins. Decision: can a player re-randomize after clicking ready? 
-→ *Recommendation:* clicking "Ready" locks the board; both-ready flips the room to `playing`. Re-randomize allowed only before ready.
+### B. Room code → **as recommended**
+Client generates 4 characters from `ABCDEFGHJKLMNPQRSTUVWXYZ23456789` — I, O, 0
+and 1 removed, because codes get read aloud and typed by hand. The code *is* the
+Durable Object name, uppercased on the way in so `k7qf` and `K7QF` are one room.
 
-### D. Disconnect visibility
-When one player's socket drops, does the other see "opponent disconnected — waiting for rejoin," or nothing?
-→ *Recommendation:* show a lightweight "opponent reconnecting…" banner. Cheap, and it makes the rejoin feature visible instead of feeling like a freeze.
+### C. "Ready" → **as recommended**
+Ready locks the fleet. Rearranging and randomizing are refused once ready, on the
+server. Both ready flips the room to `playing`, A moves first.
 
-### E. Abandonment / timeout
-If a disconnected player never comes back, does the room live forever?
-→ *Recommendation:* let the Durable Object evict naturally (it hibernates; storage has a 5 GB ceiling you'll never hit). Optionally add a "forfeit / leave" button. No timer needed for v1.
+### D. Disconnect visibility → **as recommended**
+"Opponent reconnecting…" banner, driven by `opponent {present}`.
 
-### F. Board reveal at game over
-When the game ends, do you reveal the loser's full board (where the remaining ships were)?
-→ *Recommendation:* yes — send both full boards only in the `gameOver` message. It's satisfying and safe (game is over, nothing to cheat).
+### E. Abandonment → **as recommended, no timer**
+Rooms hibernate and evict naturally. There *is* a Leave button, and it clears
+this browser's records for that room — but the seat itself stays held. See the
+known limits.
 
-### G. Frontend framework
-Plain HTML/JS vs React/etc.
-→ *Recommendation:* plain single-file HTML/JS. Two 10×10 grids and a few buttons don't need a framework, and it keeps the static-asset deploy trivial.
+### F. Board reveal → **as recommended**
+Both fleets revealed, only in `gameOver`. `revealBoth` is called from exactly two
+places: game over, and a resync of an already-finished game.
+
+### G. Frontend → **as recommended**
+Plain HTML/JS, one file, no build step. Still true after a drag-and-drop
+placement editor, explosion effects and a modal.
+
+---
+
+## Decisions taken during the build
+
+### Platform
+
+- **`exports`, not `migrations`.** Durable Object class lifecycle is declared with
+  the top-level `exports` map; the imperative `migrations` array is legacy. The
+  two are mutually exclusive.
+- **SQLite storage backend, and it matters.** `"storage": "sqlite"` is what makes
+  Durable Objects free-plan eligible. The legacy KV-backed flavour is paid-only
+  and can no longer be created at all on new accounts — a `new_classes` migration
+  is the most likely cause of a spurious "requires a paid plan" on a first deploy.
+- **WebSocket Hibernation, for cost not elegance.** The real free-plan ceiling for
+  a socket app is **duration** (13,000 GB-s/day), not the 100k request count. A DO
+  holding sockets open with plain `accept()` bills continuously; hibernation lets
+  an idle room sleep. Incoming DO socket messages bill at 20:1.
+- **`run_worker_first: ["/api/*"]`.** Static assets are matched before the Worker
+  by default, so the API route is pinned explicitly rather than left to luck.
+- **Quota is shared with Pages.** The 100k/day is per account, not per product.
+
+### Rules and flow
+
+- **`shipName` only on a sink.** Naming the ship on a plain hit would leak its
+  size. This is a rule, not a detail.
+- **Rematch needs both players.** One side asking only notifies the other; the
+  room resets when both agree. Otherwise one player could wipe a finished board
+  out from under the other before they'd looked at it.
+- **A rematch is delivered as a plain `resync`** — the same message a rejoin uses
+  — so the client has one code path for "here is the whole world again".
+
+### Identity and rejoin — the part that changed most
+
+- **`sessionStorage`, not `localStorage`.** `localStorage` is shared across tabs
+  on one origin, so a second tab would present the first player's token and the
+  server would *correctly* treat it as a rejoin and hand it the same seat. Two
+  tabs could never be two players. This was found by testing, not by reasoning.
+- **Then: "Resume your seat".** The above has a cost — a *fresh* tab has no token,
+  so closing the tab and pasting the link gets you `full`, and only Cmd+Shift+T
+  (which restores sessionStorage) got you back. So the browser also keeps a
+  longer-lived record of seats it has held, `full` names the seats nobody is
+  sitting in, and a button offers yours back. sessionStorage stays authoritative
+  for the tab you're in, so two tabs are still two players.
+- **Knowing a seat is free buys nothing.** `full.resumable` only says which seats
+  are empty; taking one still requires that seat's token, checked exactly as
+  before. Tested with a client that knows the seat is open and sends a bad token.
+- **Leave clears both records**, so leaving a game doesn't leave the app offering
+  to resume it.
+- Storage access is wrapped in a try/catch — some privacy modes throw rather than
+  no-op, and losing rejoin beats losing the page.
+
+### Anti-cheat
+
+- **Manual placement never accepts a grid.** The client sends only
+  `[{name, r, c, horizontal}]`; `fleetFromPlacements` rebuilds the grid on the
+  server and rejects overlaps, ships hanging off the board, wrong-sized fleets and
+  junk. A tampered client cannot stack five ships on one cell.
+- **Every `fire` is re-validated** — phase, turn, bounds, already-fired. The
+  client's opinion about whose turn it is carries no weight.
+- **`randomize` and `place` reply only to the requesting socket.** A fleet is
+  never broadcast.
+
+### Testing
+
+- **Rules live in `src/game.js` with zero Cloudflare imports**, which is what lets
+  the whole ruleset run under plain `node --test` with no server.
+- **The e2e suite drives real WebSockets** against `wrangler dev` or production
+  (`BATTLESHIP_URL=`), and asserts the anti-cheat rule by scanning *every frame*
+  one player received.
+- **Browser checks drive real Chrome over CDP**, not Playwright — no heavy
+  dependency added to the project to test a single-file frontend.
+- **Room codes in tests carry nine random characters.** Rooms are Durable Objects
+  and persist, so short codes eventually collide with a finished room from an
+  earlier run and the server correctly answers `full` — which read as a mystery
+  failure until it was traced.
+
+---
+
+## Build log
+
+| Commit | What |
+|---|---|
+| `d4c4f71` | Rules, Worker + Room DO, frontend, tests. Playable end to end. |
+| `8c2ed24` | Made the leak check precise and winner-agnostic (both were flaky by luck). |
+| `9b983a4` | A hit earns another shot; board redrawn as the physical game — continuous hulls, peg holes, pegs. |
+| `14fb99c` | Manual placement, impact effects, end-game modal and rematch. |
+| `47295a1` | Live link and screenshots in the README. |
+| `7ebec6c` | Stencilled hull wordmark; fixed colliding e2e room codes. |
+| `d8c8e1c` | Warship tab icon, drawn for 16px and checked at that size. |
+| `28aeed1` | Kill list survives a rejoin; e2e failures now name the socket close. |
+| `1ad76e4` | A closed tab can take its seat back. |
 
 ---
 
 ## The one rule that must never bend
 
 > A `fire` message returns **only** hit / miss / sunk for that one cell.
-> The server never sends a player any cell of the opponent's board they haven't earned by firing — until `gameOver`.
+> The server never sends a player any cell of the opponent's board they haven't
+> earned by firing — until `gameOver`.
 
-If you ever find yourself sending the enemy fleet to the client "to make rendering easier," stop. That's the whole game's integrity.
+If you ever find yourself sending the enemy fleet to the client "to make
+rendering easier," stop. That's the whole game's integrity.
+
+**It is now enforced by a test, not just by care.** The e2e suite scans every
+frame player A received before `gameOver` and fails if B's grid appears, if a
+fleet rides on any message other than `board`/`resync`, or if a fleet disagrees
+with the grid sent alongside it — which would catch someone else's ships list
+even behind an innocent-looking grid.
+
+It deliberately does *not* compare individual ships by coordinates: both players
+sometimes place a ship on the same squares by chance, and that is A seeing A's
+own Destroyer, not a leak. That false positive cost an hour before it was
+understood.
+
+---
+
+## Known limits, still open
+
+- **Resume is per-browser.** The seat token never leaves the machine it was issued
+  to, so you cannot resume from another device. Putting it in the URL would allow
+  that, but anyone holding the link would *be* you.
+- **A seat is never released.** No timeout, per decision E. If a player leaves for
+  good the room stays full — start a new one. A `forfeit` message would fix it.
+- **An unexplained e2e flake.** Two production runs out of roughly twenty-five
+  failed mid-suite, never reproduced, and one hypothesis (deploy rollout
+  restarting the DO) was tested and **disproved**. The harness now reports the
+  socket close code and whether the test closed it, so the next occurrence should
+  be readable. Suspicion: the test client never reconnects, while the real one
+  does — so a transient drop fails the suite but a player would just resume.
+- **`enemySunk` on rejoin was a real bug**, found in a final review and fixed:
+  `resync` carried no record of which enemy ships you'd sunk, so the fleet legend
+  came back blank after a reconnect. Names only, of ships already announced.
+- Not built: sound, spectators, mobile drag polish, an AI opponent.
