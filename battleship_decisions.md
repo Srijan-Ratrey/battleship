@@ -4,7 +4,7 @@ Originally the calls made *before* building. Now also the record of how they
 landed, what got reversed once the game was playable, and the decisions that only
 surfaced once code met reality.
 
-**Status:** live at <https://battleship.sr5.workers.dev> (version `adc9cb97`).
+**Status:** live at <https://battleship.sr5.workers.dev> (version `8c975e40`).
 32 unit tests, 16 end-to-end socket checks, 29 browser checks. Free plan.
 
 ---
@@ -182,7 +182,7 @@ placement editor, explosion effects and a modal.
 | `28aeed1` | Kill list survives a rejoin; e2e failures now name the socket close. |
 | `1ad76e4` | A closed tab can take its seat back. |
 | `60d79cf` | This document brought back in line with what was built. |
-| `HEAD` | Computer opponent, Easy and Hard. |
+| `48c9be1` | Computer opponent, Easy and Hard. |
 
 ---
 
