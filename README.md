@@ -15,6 +15,9 @@ the game is over.
 Create a room, send the invite link to a friend, and play. No sign-up, no
 install.
 
+**New here?** [HOW-IT-WORKS.md](HOW-IT-WORKS.md) explains the whole thing in
+plain language, no jargon.
+
 ## Run it
 
 ```bash
@@ -48,6 +51,7 @@ public/favicon.svg   tab icon — a warship silhouette, plus a PNG fallback
 test/game.test.mjs   rules tests, plain Node
 test/integration.mjs end-to-end test over real WebSockets (needs `npm run dev`)
 wrangler.jsonc       Worker name, ROOM binding, SQLite DO, assets
+HOW-IT-WORKS.md      the plain-language explanation
 docs/                README screenshots
 ```
 
